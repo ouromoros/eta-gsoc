@@ -101,4 +101,4 @@ send :: Socket      -- ^ Connected socket
      -> ByteString  -- ^ Data to send
      -> Fiber Int      -- ^ Number of bytes sent
 
-
+bindPortTCP :: Int -> HostPreference -> Fiber Socket
