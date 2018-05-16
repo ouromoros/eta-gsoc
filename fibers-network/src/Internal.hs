@@ -1,6 +1,19 @@
 Module Control.Concurrent.Fiber.Network.Internal
   where
 import Control.Concurrent.FIber
+import System.Posix.Types (Channel)
+import Network.Types (SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SocketAddr(..), SocketAddress)
+import Foreign.C.Error (eINTR, getErrno)
+import Control.Exception.Base (evaluate)
+
+data Socket
+  = MkSocket
+            Channel              -- File Descriptor
+            Family
+            SocketType
+            ProtocolNumber       -- Protocol Number
+            (MVar SocketStatus)  -- Status Flag
+  deriving Typeable
 
 withSockAddr :: SockAddr -> (SocketAddress -> Fiber a) -> Fiber a
 
@@ -36,3 +49,18 @@ withSocketsInit = unsafePerformIO $ do
 foreign import ccall unsafe "initWinSock" initWinSock :: IO Int
 
 #endif
+
+throwErrnoIfRetry            :: (a -> Bool) -> String -> Fiber a -> Fiber a
+throwErrnoIfRetry pred loc f  =
+  do
+    res <- f
+    if pred res
+      then do
+        err <- liftIO getErrno
+        if err == eINTR
+          then throwErrnoIfRetry pred loc f
+          else throwErrno loc
+      else return res
+
+throwErrnoIfMinus1Retry :: (Eq a, Num a) => String -> Fiber a -> Fiber a
+throwErrnoIfMinus1Retry  = throwErrnoIfRetry (== -1)
