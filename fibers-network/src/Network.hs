@@ -23,17 +23,17 @@ foreign import Java unsafe "@static eta.runtime.concurrent.waitWrite"
 foreign import Java unsafe "@static eta.control.concurrent.fiber.network.Utils.setNonBlock"
   setNonBlock' :: Channel -> IO ()
 
-setNonBlock = liftIO setNonBlock'
-threadWaitAccept = liftIO threadWaitAccept'
-threadWaitConnect = liftIO threadWaitConnect'
-threadWaitWrite = liftIO threadWaitWrite'
-threadWaitRead = liftIO threadWaitRead'
-c_connect = liftIO c_connect'
-c_accept = liftIO c_accept'
-c_read = liftIO SPI.c_read
-c_write = liftIO SPI.c_write
+setNonBlock = liftIO . setNonBlock'
+threadWaitAccept = liftIO . threadWaitAccept'
+threadWaitConnect = liftIO . threadWaitConnect'
+threadWaitWrite = liftIO . threadWaitWrite'
+threadWaitRead = liftIO . threadWaitRead'
+c_connect = liftIO . c_connect'
+c_accept = liftIO . c_accept'
+c_read = liftIO . SPI.c_read
+c_write = liftIO . SPI.c_write
 
-newSockAddr x = liftIO $ Types.newSockAddr x
+newSockAddr = liftIO . Types.newSockAddr
 
 accept :: Socket                        -- Queue Socket
        -> Fiber (Socket,                   -- Readable Socket
@@ -60,6 +60,8 @@ accept sock@(MkSocket s family stype protocol status) = do
             Nothing -> threadWaitAccept s >> onNothingRetry io
             Just ch -> return ch
         toStype (ServerSocket s) = s
+
+modifyMvar_ = undefined
 
 connect :: Socket    -- Unconnected Socket
         -> SockAddr  -- Socket address stuff
@@ -115,18 +117,23 @@ writeRawBufferPtr loc !fd !buf !off !len = unsafe_write
 sendAll :: Socket      -- ^ Connected socket
         -> ByteString  -- ^ Data to send
         -> Fiber ()
+sendAll = undefined
 
 sendMany :: Socket        -- ^ Connected socket
          -> [ByteString]  -- ^ Data to send
          -> Fiber ()
+sendMany = undefined
 
 sendBuf :: Socket     -- Bound/Connected Socket
         -> Ptr Word8  -- Pointer to the data to send
         -> Int        -- Length of the buffer
         -> Fiber Int     -- Number of Bytes sent
+sendBuf = undefined
 
 send :: Socket      -- ^ Connected socket
      -> ByteString  -- ^ Data to send
      -> Fiber Int      -- ^ Number of bytes sent
+send = undefined
 
 bindPortTCP :: Int -> HostPreference -> Fiber Socket
+bindPortTCP = undefined
