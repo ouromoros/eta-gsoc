@@ -16,10 +16,15 @@ extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
 library
-  -- exposed-modules:     
-  -- other-modules:       
+  exposed-modules:     Control.Concurrent.Fiber.Network
+  other-modules:       Control.Concurrent.Fiber.Network.Internal
   -- other-extensions:    
   build-depends:       base >=4.8 && <4.9
+                      ,network
+                      ,eta-fibers-dev
   hs-source-dirs:      src
   default-language:    Haskell2010
+  extensions:
+    CPP, DeriveDataTypeable, ForeignFunctionInterface, TypeSynonymInstances,
+    MagicHash, TypeOperators, DataKinds, TypeFamilies, MultiParamTypeClasses
   java-sources: java/Utils.java
