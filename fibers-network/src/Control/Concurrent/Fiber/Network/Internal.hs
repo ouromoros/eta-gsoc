@@ -50,6 +50,7 @@ c_setsockopt c so i = liftIO $ c_setsockopt' c so i
 
 readMVar = undefined
 
+withSockAddr :: SockAddr -> (SocketAddress -> Fiber a) -> Fiber a
 withSockAddr = undefined
 
 isAcceptable :: Socket -> Fiber Bool
@@ -125,12 +126,27 @@ packSocketOption so =
     Just NoDelay       -> Just tCP_NODELAY
     _                  -> Nothing
 
-packSocketOption' :: String -> SocketOption -> IO SOption
+packSocketOption' :: String -> SocketOption -> Fiber SOption
 packSocketOption' caller so = liftIO $ maybe err return (packSocketOption so)
  where
   err = ioError . userError . concat $ ["Network.Socket.", caller,
     ": socket option ", show so, " unsupported on this system"]
 
+packSocketType' :: SocketType -> Maybe CInt
+packSocketType' stype = case Just stype of
+    -- the Just above is to disable GHC's overlapping pattern
+    -- detection: see comments for packSocketOption
+    Just NoSocketType     -> Just 0
+    Just Stream           -> Just 1
+    Just Datagram         -> Just 2
+    Just (ServerSocket _) -> Just 3
+    _                     -> Nothing
+
+packSocketTypeOrThrow :: String -> SocketType -> Fiber CInt
+packSocketTypeOrThrow caller stype = liftIO $ maybe err return (packSocketType' stype)
+ where
+  err = ioError . userError . concat $ ["Network.Socket.", caller, ": ",
+    "socket type ", show stype, " unsupported on this system"]
 
 
 setSocketOption :: Socket
@@ -138,7 +154,7 @@ setSocketOption :: Socket
                 -> Int          -- Option Value
                 -> Fiber ()
 setSocketOption (MkSocket s _ _ _ _) so v = do
-   opt <- liftIO $ packSocketOption' "setSocketOption" so
+   opt <- packSocketOption' "setSocketOption" so
    c_setsockopt s opt (fromIntegral v)
 
 

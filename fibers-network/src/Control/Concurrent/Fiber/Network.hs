@@ -1,7 +1,8 @@
 {-# LANGUAGE BangPatterns, MultiWayIf #-}
 module Control.Concurrent.Fiber.Network
   where
-import Control.Concurrent.Fiber
+import Control.Concurrent.Fiber (Fiber(..), liftIO, takeMVar, putMVar)
+import qualified Control.Concurrent.Fiber as F
 import qualified Network.Socket as NS
 import Control.Concurrent.Fiber.Network.Internal
 import GHC.IO.FD (FD(..))
@@ -43,11 +44,15 @@ foreign import java unsafe "@static eta.runtime.concurrent.waitWrite"
 foreign import java unsafe "@static eta.control.concurrent.fiber.network.Utils.setNonBlock"
   setNonBlock' :: Channel -> IO ()
 
-
+setNonBlock :: Channel -> Fiber ()
 setNonBlock = liftIO . setNonBlock'
+threadWaitAccept :: Channel -> Fiber ()
 threadWaitAccept = liftIO . threadWaitAccept'
+threadWaitConnect :: Channel -> Fiber ()
 threadWaitConnect = liftIO . threadWaitConnect'
+threadWaitWrite :: Channel -> Fiber ()
 threadWaitWrite = liftIO . threadWaitWrite'
+threadWaitRead :: Channel -> Fiber ()
 threadWaitRead = liftIO . threadWaitRead'
 
 c_connect c sa = liftIO $ c_connect' c sa
@@ -58,6 +63,9 @@ c_listen c sa i = liftIO $ c_listen' c sa i
 c_bind c sa = liftIO $ c_bind' c sa
 c_socket family t p = liftIO $ c_socket' family t p
 
+modifyMVar m f = liftIO $ F.modifyMVar m f
+newMVar = liftIO . F.newMVar
+
 accept :: Socket                        -- Queue Socket
        -> Fiber (Socket,                   -- Readable Socket
               SockAddr)                 -- Peer details
@@ -67,7 +75,7 @@ accept sock@(MkSocket s family stype protocol status) = do
  okay <- isAcceptable sock
  if not okay
    then
-     ioError $ userError $
+     liftIO $ ioError $ userError $
        "Network.Socket.accept: can't accept socket (" ++
          show (family, stype, protocol) ++ ") with status not in position to accept" ++
          "connections."
@@ -183,7 +191,7 @@ socket :: Family         -- Family Name (usually AF_INET)
        -> ProtocolNumber -- Protocol Number (getProtocolByName to find value)
        -> Fiber Socket      -- Unconnected Socket
 socket family stype protocol = do
-    c_stype <- NS.packSocketTypeOrThrow "socket" stype
+    c_stype <- packSocketTypeOrThrow "socket" stype
     fd      <- c_socket (NS.packFamily family) c_stype protocol
     setNonBlock fd
     socket_status <- newMVar NotConnected
@@ -209,9 +217,9 @@ bind :: Socket    -- Unconnected Socket
            -> Fiber ()
 bind (MkSocket s _family _stype _protocol socketStatus) addr = do
  modifyMVar socketStatus $ \ status -> do
-   if status /= NotConnected
+  if status /= NotConnected
     then
-     ioError $ userError $
+     liftIO $ ioError $ userError $
        "Network.Socket.bind: can't bind to socket with non-default status."
     else do
      withSockAddr addr $ \saddr -> do
@@ -269,13 +277,14 @@ bindPortGenEx sockOpts sockettype p s = do
         tryAddrs _                  = error "bindPort: addrs is empty"
 
         theBody addr =
+          -- Is this Ok?
           bracketOnError
-          fiber (socket (NS.addrFamily addr) (NS.addrSocketType addr) (NS.addrProtocol addr))
-          close
+          (fiber (socket (NS.addrFamily addr) (NS.addrSocketType addr) (NS.addrProtocol addr)))
+          (fiber . close)
           (\sock -> do
-              mapM_ (\(opt,v) -> NS.setSocketOption sock opt v) sockOpts
+              mapM_ (\(opt,v) -> fiber $ setSocketOption sock opt v) sockOpts
               --------
-              bind sock (NS.addrAddress addr)
+              fiber $ bind sock (NS.addrAddress addr)
               return sock
           )
     liftIO $ tryAddrs addrs'
