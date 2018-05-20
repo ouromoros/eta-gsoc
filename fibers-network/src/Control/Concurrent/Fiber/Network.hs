@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns, MultiWayIf #-}
 module Control.Concurrent.Fiber.Network
   where
 import Control.Concurrent.Fiber
@@ -9,11 +9,19 @@ import Foreign
 import Foreign.C.Types
 import Java
 import System.Posix.Types (Channel)
-import Network.Socket (SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..))
+import System.Posix.Internals (c_close)
+import Network.Socket (SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..))
 import qualified System.Posix.Internals as SPI
+import qualified Data.Streaming.Network as DSN
+import Data.Streaming.Network (HostPreference(..))
 import Data.ByteString (ByteString)
 import Control.Monad
+import Control.Exception (catch, IOException, bracketOnError)
+import Data.Streaming.Network.Internal (HostPreference(..))
+import GHC.Conc (closeFdWith) -- blocking?
 -- import Data.Streaming.Network (HostPreference)
+
+data {-# CLASS "java.net.SocketOption" #-} SOption = SOption (Object# SOption)
 
 foreign import java unsafe "@static eta.network.Utils.connect"
   c_connect' :: Channel -> SocketAddress -> IO Bool
@@ -21,6 +29,13 @@ foreign import java unsafe "@static eta.network.Utils.accept"
   c_accept' :: Channel -> IO (Maybe Channel)
 foreign import java unsafe "@static eta.network.Utils.listen"
   c_listen' :: Channel -> SocketAddress -> CInt -> IO CInt
+foreign import java unsafe "@static eta.network.Utils.bind"
+  c_bind' :: Channel -> SocketAddress -> IO CInt
+foreign import java unsafe "@static eta.network.Utils.setsockopt"
+  c_setsockopt' :: Channel -> SOption -> CInt ->  IO ()
+foreign import java unsafe "@static eta.network.Utils.socket"
+  c_socket' :: CInt -> CInt -> CInt -> IO Channel
+
 foreign import java unsafe "@static eta.runtime.concurrent.waitAccept"
   threadWaitAccept' :: Channel -> IO ()
 foreign import java unsafe "@static eta.runtime.concurrent.waitConnect"
@@ -38,13 +53,15 @@ threadWaitAccept = liftIO . threadWaitAccept'
 threadWaitConnect = liftIO . threadWaitConnect'
 threadWaitWrite = liftIO . threadWaitWrite'
 threadWaitRead = liftIO . threadWaitRead'
+
 c_connect = liftIO . c_connect'
 c_accept = liftIO . c_accept'
 c_read = liftIO . SPI.c_read
 c_write = liftIO . SPI.c_write
 c_listen = liftIO . c_listen'
-
-newSockAddr = liftIO . NS.newSockAddr
+c_bind = liftIO . c_bind'
+c_setsockopt = liftIO . c_setsockopt'
+c_socket = liftIO . c_socket'
 
 accept :: Socket                        -- Queue Socket
        -> Fiber (Socket,                   -- Readable Socket
@@ -103,12 +120,12 @@ listen :: Socket  -- Connected & Bound Socket
        -> Fiber ()
 listen (MkSocket s _family _stype _protocol socketStatus) backlog = do
  modifyMVar socketStatus $ \ status -> do
- if | Bound sockAddr <- status -> do
-      withSockAddr sockAddr $ \saddr -> c_listen s saddr (fromIntegral backlog)
-      return Listening
-    | otherwise ->
-      ioError $ userError $
-        "Network.Socket.listen: can't listen on socket with non-bound status."
+   if | Bound sockAddr <- status -> do
+        withSockAddr sockAddr $ \saddr -> c_listen s saddr (fromIntegral backlog)
+        return Listening
+      | otherwise ->
+        ioError $ userError $
+          "Network.Socket.listen: can't listen on socket with non-bound status."
 
 
 #if !defined(mingw32_HOST_OS)
@@ -154,6 +171,74 @@ send :: Socket      -- ^ Connected socket
      -> Fiber Int      -- ^ Number of bytes sent
 send = undefined
 
+closeFd = c_close
+
+close :: Socket -> Fiber ()
+close (MkSocket s _ _ _ socketStatus) = do
+ modifyMVar socketStatus $ \ status ->
+   case status of
+     ConvertedToHandle ->
+         ioError (userError ("close: converted to a Handle, use hClose instead"))
+     Closed ->
+         return status
+     _ -> closeFdWith closeFd s >> return Closed
+
+socket :: Family         -- Family Name (usually AF_INET)
+       -> SocketType     -- Socket Type (usually Stream)
+       -> ProtocolNumber -- Protocol Number (getProtocolByName to find value)
+       -> Fiber Socket      -- Unconnected Socket
+socket family stype protocol = do
+    c_stype <- NS.packSocketTypeOrThrow "socket" stype
+    fd      <- c_socket (NS.packFamily family) c_stype protocol
+    setNonBlock fd
+    socket_status <- newMVar NotConnected
+    withSocketsDo $ return ()
+    let sock = MkSocket fd family stype protocol socket_status
+#if HAVE_DECL_IPV6_V6ONLY
+    -- The default value of the IPv6Only option is platform specific,
+    -- so we explicitly set it to 0 to provide a common default.
+# if defined(mingw32_HOST_OS)
+    -- The IPv6Only option is only supported on Windows Vista and later,
+    -- so trying to change it might throw an error.
+    when (family == AF_INET6 && (stype == Stream || stype == Datagram)) $
+      catch (setSocketOption sock IPv6Only 0) $ (\(_ :: IOException) -> return ())
+# else
+    when (family == AF_INET6 && (stype == Stream || stype == Datagram)) $
+      setSocketOption sock IPv6Only 0 `onException` close sock
+# endif
+#endif
+    return sock
+
+bind :: Socket    -- Unconnected Socket
+           -> SockAddr  -- Address to Bind to
+           -> Fiber ()
+bind (MkSocket s _family _stype _protocol socketStatus) addr = do
+ modifyMVar socketStatus $ \ status -> do
+   if status /= NotConnected
+    then
+     ioError $ userError $
+       "Network.Socket.bind: can't bind to socket with non-default status."
+    else do
+     withSockAddr addr $ \saddr -> do
+       _status <- c_bind s saddr
+       return (Bound addr)
+
+setSocketOption :: Socket
+                -> SocketOption -- Option Name
+                -> Int          -- Option Value
+                -> Fiber ()
+setSocketOption (MkSocket s _ _ _ _) so v = do
+   opt <- liftIO $ NS.packSocketOption' "setSocketOption" so
+   c_setsockopt s opt (fromIntegral v)
+
+-- Below are functions in Data.Streaming
+
+defaultSocketOptions :: SocketType -> [(NS.SocketOption, Int)]
+defaultSocketOptions sockettype =
+    case sockettype of
+        NS.Datagram -> [(NS.ReuseAddr,1)]
+        _           -> [(NS.NoDelay,1), (NS.ReuseAddr,1)]
+
 bindPortTCP :: Int -> HostPreference -> Fiber Socket
 bindPortTCP p s = do
     sock <- bindPortGen Stream p s
@@ -176,7 +261,7 @@ bindPortGenEx sockOpts sockettype p s = do
                 Host s' -> Just s'
                 _ -> Nothing
         port = Just . show $ p
-    addrs <- NS.getAddrInfo (Just hints) host port
+    addrs <- liftIO $ NS.getAddrInfo (Just hints) host port
     -- Choose an IPv6 socket if exists.  This ensures the socket can
     -- handle both IPv4 and IPv6 if v6only is false.
     let addrs4 = filter (\x -> NS.addrFamily x /= NS.AF_INET6) addrs
@@ -198,51 +283,13 @@ bindPortGenEx sockOpts sockettype p s = do
 
         theBody addr =
           bracketOnError
-          (socket (NS.addrFamily addr) (NS.addrSocketType addr) (NS.addrProtocol addr))
+          io (socket (NS.addrFamily addr) (NS.addrSocketType addr) (NS.addrProtocol addr))
           close
           (\sock -> do
               mapM_ (\(opt,v) -> NS.setSocketOption sock opt v) sockOpts
               --------
-              NS.bind sock (NS.addrAddress addr)
+              bind sock (NS.addrAddress addr)
               return sock
           )
-    tryAddrs addrs'
+    liftIO $ tryAddrs addrs'
 
-
-
-close :: Socket -> Fiber ()
-close (MkSocket s _ _ _ socketStatus) = do
- modifyMVar socketStatus $ \ status ->
-   case status of
-     ConvertedToHandle ->
-         ioError (userError ("close: converted to a Handle, use hClose instead"))
-     Closed ->
-         return status
-     _ -> closeFdWith closeFd s >> return Closed
-
-
-socket :: Family         -- Family Name (usually AF_INET)
-       -> SocketType     -- Socket Type (usually Stream)
-       -> ProtocolNumber -- Protocol Number (getProtocolByName to find value)
-       -> Fiber Socket      -- Unconnected Socket
-socket family stype protocol = do
-    c_stype <- packSocketTypeOrThrow "socket" stype
-    fd      <- c_socket (packFamily family) c_stype protocol
-    setNonBlock fd
-    socket_status <- newMVar NotConnected
-    withSocketsDo $ return ()
-    let sock = MkSocket fd family stype protocol socket_status
-#if HAVE_DECL_IPV6_V6ONLY
-    -- The default value of the IPv6Only option is platform specific,
-    -- so we explicitly set it to 0 to provide a common default.
-# if defined(mingw32_HOST_OS)
-    -- The IPv6Only option is only supported on Windows Vista and later,
-    -- so trying to change it might throw an error.
-    when (family == AF_INET6 && (stype == Stream || stype == Datagram)) $
-      catch (setSocketOption sock IPv6Only 0) $ (\(_ :: IOException) -> return ())
-# else
-    when (family == AF_INET6 && (stype == Stream || stype == Datagram)) $
-      setSocketOption sock IPv6Only 0 `onException` close sock
-# endif
-#endif
-    return sock

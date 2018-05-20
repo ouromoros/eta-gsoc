@@ -9,6 +9,8 @@ import Foreign.C.Error (eINTR, getErrno)
 import Control.Exception.Base (evaluate)
 import Foreign.C.Error (throwErrno)
 import Data.Typeable
+import Data.Word
+import Java
 
 data Socket
   = MkSocket
@@ -19,8 +21,28 @@ data Socket
             (MVar SocketStatus)  -- Status Flag
   deriving Typeable
 
+data {-# CLASS "java.net.InetSocketAddress" #-} InetSocketAddress =
+  ISA (Object# InetSocketAddress)
+  deriving Class
+data {-# CLASS "java.net.InetAddress" #-} InetAddress =
+  IA (Object# InetAddress)
+  deriving Class
+
+
 -- io :: Fiber a -> IO a
 -- io (Fiber a) = IO a
+
+foreign import java unsafe "@static eta.network.Utils.getSockAddr" 
+  getSockAddr':: Channel -> IO InetSocketAddress
+foreign import java unsafe "getAddress" 
+  sockInetAddress :: InetSocketAddress -> InetAddress
+foreign import java unsafe "getPort"
+  sockPort :: InetSocketAddress -> Int
+foreign import java unsafe "@static eta.network.Utils.inetAddrInt"
+  inetAddrInt :: InetAddress -> Word32
+
+
+getSockAddr = liftIO . getSockAddr'
 
 readMVar = undefined
 
@@ -78,7 +100,7 @@ throwErrnoIfMinus1Retry  = throwErrnoIfRetry (== -1)
 
 newSockAddr :: Channel -> Fiber SockAddr
 newSockAddr ch = do
-  sock <- getSockAddr ch
+  sock <- liftIO $ getSockAddr ch
   let inet = inetAddrInt (sockInetAddress sock)
       port = sockPort sock
   return $ SockAddrInet (fromIntegral port) inet
@@ -86,89 +108,3 @@ newSockAddr ch = do
 data {-# CLASS "java.net.SocketAddress" #-} SocketAddress =
   SA (Object# SocketAddress)
   deriving Class
-
- -- Below are complex and need to be changed
-
-bindPortGen :: SocketType -> Int -> HostPreference -> Fiber Socket
-bindPortGen sockettype = bindPortGenEx (defaultSocketOptions sockettype) sockettype
-
-bindPortGenEx :: [(Sock.SocketOption, Int)] -> SocketType -> Int -> HostPreference -> Fiber Socket
-bindPortGenEx sockOpts sockettype p s = do
-    let hints = NS.defaultHints
-            { NS.addrFlags = [ NS.AI_PASSIVE
-                             , NS.AI_ADDRCONFIG
-                             ]
-            , NS.addrSocketType = sockettype
-            }
-        host =
-            case s of
-                Host s' -> Just s'
-                _ -> Nothing
-        port = Just . show $ p
-    addrs <- NS.getAddrInfo (Just hints) host port
-    -- Choose an IPv6 socket if exists.  This ensures the socket can
-    -- handle both IPv4 and IPv6 if v6only is false.
-    let addrs4 = filter (\x -> NS.addrFamily x /= NS.AF_INET6) addrs
-        addrs6 = filter (\x -> NS.addrFamily x == NS.AF_INET6) addrs
-        addrs' =
-            case s of
-                HostIPv4     -> addrs4 ++ addrs6
-                HostIPv4Only -> addrs4
-                HostIPv6     -> addrs6 ++ addrs4
-                HostIPv6Only -> addrs6
-                _ -> addrs
-
-        tryAddrs (addr1:rest@(_:_)) =
-                                      catch
-                                      (theBody addr1)
-                                      (\(_ :: IOException) -> tryAddrs rest)
-        tryAddrs (addr1:[])         = theBody addr1
-        tryAddrs _                  = error "bindPort: addrs is empty"
-
-        theBody addr =
-          bracketOnError
-          (NS.socket (NS.addrFamily addr) (NS.addrSocketType addr) (NS.addrProtocol addr))
-          NS.close
-          (\sock -> do
-              mapM_ (\(opt,v) -> NS.setSocketOption sock opt v) sockOpts
-              NS.bind sock (NS.addrAddress addr)
-              return sock
-          )
-    tryAddrs addrs'
-
-close :: Socket -> Fiber ()
-close (MkSocket s _ _ _ socketStatus) = do
- modifyMVar socketStatus $ \ status ->
-   case status of
-     ConvertedToHandle ->
-         ioError (userError ("close: converted to a Handle, use hClose instead"))
-     Closed ->
-         return status
-     _ -> closeFdWith closeFd s >> return Closed
-
-
-socket :: Family         -- Family Name (usually AF_INET)
-       -> SocketType     -- Socket Type (usually Stream)
-       -> ProtocolNumber -- Protocol Number (getProtocolByName to find value)
-       -> Fiber Socket      -- Unconnected Socket
-socket family stype protocol = do
-    c_stype <- packSocketTypeOrThrow "socket" stype
-    fd      <- c_socket (packFamily family) c_stype protocol
-    setNonBlockIfNeeded fd
-    socket_status <- newMVar NotConnected
-    withSocketsDo $ return ()
-    let sock = MkSocket fd family stype protocol socket_status
-#if HAVE_DECL_IPV6_V6ONLY
-    -- The default value of the IPv6Only option is platform specific,
-    -- so we explicitly set it to 0 to provide a common default.
-# if defined(mingw32_HOST_OS)
-    -- The IPv6Only option is only supported on Windows Vista and later,
-    -- so trying to change it might throw an error.
-    when (family == AF_INET6 && (stype == Stream || stype == Datagram)) $
-      catch (setSocketOption sock IPv6Only 0) $ (\(_ :: IOException) -> return ())
-# else
-    when (family == AF_INET6 && (stype == Stream || stype == Datagram)) $
-      setSocketOption sock IPv6Only 0 `onException` close sock
-# endif
-#endif
-    return sock
