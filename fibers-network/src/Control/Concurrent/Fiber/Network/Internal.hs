@@ -3,13 +3,14 @@ module Control.Concurrent.Fiber.Network.Internal
 import Control.Concurrent.Fiber
 import Control.Concurrent.Fiber.MVar
 import System.Posix.Types (Channel)
-import Network.Socket (SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..))
+import Network.Socket (SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..))
 import qualified Network.Socket as NS
-import Foreign.C.Error (eINTR, getErrno)
+import Foreign.C.Error (eINTR, getErrno, throwErrno)
 import Control.Exception.Base (evaluate)
-import Foreign.C.Error (throwErrno)
+import Foreign.C.Types
 import Data.Typeable
 import Data.Word
+import GHC.IO (IO(..))
 import Java
 
 data Socket
@@ -29,9 +30,11 @@ data {-# CLASS "java.net.InetAddress" #-} InetAddress =
   deriving Class
 
 
--- io :: Fiber a -> IO a
--- io (Fiber a) = IO a
+fiber :: Fiber a -> IO a
+fiber (Fiber a) = IO a
 
+foreign import java unsafe "@static eta.network.Utils.setsockopt"
+  c_setsockopt' :: Channel -> SOption -> CInt ->  IO ()
 foreign import java unsafe "@static eta.network.Utils.getSockAddr" 
   getSockAddr':: Channel -> IO InetSocketAddress
 foreign import java unsafe "getAddress" 
@@ -43,6 +46,7 @@ foreign import java unsafe "@static eta.network.Utils.inetAddrInt"
 
 
 getSockAddr = liftIO . getSockAddr'
+c_setsockopt c so i = liftIO $ c_setsockopt' c so i
 
 readMVar = undefined
 
@@ -108,3 +112,80 @@ newSockAddr ch = do
 data {-# CLASS "java.net.SocketAddress" #-} SocketAddress =
   SA (Object# SocketAddress)
   deriving Class
+
+packSocketOption :: SocketOption -> Maybe SOption
+packSocketOption so =
+  case Just so of
+    Just ReuseAddr     -> Just sO_REUSEADDR
+    Just Broadcast     -> Just sO_BROADCAST
+    Just SendBuffer    -> Just sO_SNDBUF
+    Just RecvBuffer    -> Just sO_RCVBUF
+    Just KeepAlive     -> Just sO_KEEPALIVE
+    Just Linger        -> Just sO_LINGER
+    Just NoDelay       -> Just tCP_NODELAY
+    _                  -> Nothing
+
+packSocketOption' :: String -> SocketOption -> IO SOption
+packSocketOption' caller so = liftIO $ maybe err return (packSocketOption so)
+ where
+  err = ioError . userError . concat $ ["Network.Socket.", caller,
+    ": socket option ", show so, " unsupported on this system"]
+
+
+
+setSocketOption :: Socket
+                -> SocketOption -- Option Name
+                -> Int          -- Option Value
+                -> Fiber ()
+setSocketOption (MkSocket s _ _ _ _) so v = do
+   opt <- liftIO $ packSocketOption' "setSocketOption" so
+   c_setsockopt s opt (fromIntegral v)
+
+
+data {-# CLASS "java.net.SocketOption" #-} SOption = SOption (Object# SOption)
+
+foreign import java unsafe
+  "@static @field java.net.StandardSocketOptions.IP_MULTICAST_IF"
+  iP_MULTICAST_IF :: SOption
+
+foreign import java unsafe
+  "@static @field java.net.StandardSocketOptions.IP_MULTICAST_LOOP"
+  iP_MULTICAST_LOOP :: SOption
+
+foreign import java unsafe
+  "@static @field java.net.StandardSocketOptions.IP_MULTICAST_TTL"
+  iP_MULTICAST_TTL :: SOption
+
+foreign import java unsafe
+  "@static @field java.net.StandardSocketOptions.IP_TOS"
+  iP_TOS :: SOption
+
+foreign import java unsafe
+  "@static @field java.net.StandardSocketOptions.SO_BROADCAST"
+  sO_BROADCAST :: SOption
+
+foreign import java unsafe
+  "@static @field java.net.StandardSocketOptions.SO_KEEPALIVE"
+  sO_KEEPALIVE :: SOption
+
+foreign import java unsafe
+  "@static @field java.net.StandardSocketOptions.SO_LINGER"
+  sO_LINGER :: SOption
+
+foreign import java unsafe
+  "@static @field java.net.StandardSocketOptions.SO_RCVBUF"
+  sO_RCVBUF :: SOption
+
+foreign import java unsafe
+  "@static @field java.net.StandardSocketOptions.SO_REUSEADDR"
+  sO_REUSEADDR :: SOption
+
+foreign import java unsafe
+  "@static @field java.net.StandardSocketOptions.SO_SNDBUF"
+  sO_SNDBUF :: SOption
+
+foreign import java unsafe
+  "@static @field java.net.StandardSocketOptions.TCP_NODELAY"
+  tCP_NODELAY :: SOption
+
+

@@ -21,8 +21,6 @@ import Data.Streaming.Network.Internal (HostPreference(..))
 import GHC.Conc (closeFdWith) -- blocking?
 -- import Data.Streaming.Network (HostPreference)
 
-data {-# CLASS "java.net.SocketOption" #-} SOption = SOption (Object# SOption)
-
 foreign import java unsafe "@static eta.network.Utils.connect"
   c_connect' :: Channel -> SocketAddress -> IO Bool
 foreign import java unsafe "@static eta.network.Utils.accept"
@@ -31,8 +29,6 @@ foreign import java unsafe "@static eta.network.Utils.listen"
   c_listen' :: Channel -> SocketAddress -> CInt -> IO CInt
 foreign import java unsafe "@static eta.network.Utils.bind"
   c_bind' :: Channel -> SocketAddress -> IO CInt
-foreign import java unsafe "@static eta.network.Utils.setsockopt"
-  c_setsockopt' :: Channel -> SOption -> CInt ->  IO ()
 foreign import java unsafe "@static eta.network.Utils.socket"
   c_socket' :: CInt -> CInt -> CInt -> IO Channel
 
@@ -54,14 +50,13 @@ threadWaitConnect = liftIO . threadWaitConnect'
 threadWaitWrite = liftIO . threadWaitWrite'
 threadWaitRead = liftIO . threadWaitRead'
 
-c_connect = liftIO . c_connect'
+c_connect c sa = liftIO $ c_connect' c sa
 c_accept = liftIO . c_accept'
-c_read = liftIO . SPI.c_read
-c_write = liftIO . SPI.c_write
-c_listen = liftIO . c_listen'
-c_bind = liftIO . c_bind'
-c_setsockopt = liftIO . c_setsockopt'
-c_socket = liftIO . c_socket'
+c_read fd buf len = liftIO $ SPI.c_read fd buf len
+c_write fd buf len = liftIO $ SPI.c_write fd buf len
+c_listen c sa i = liftIO $ c_listen' c sa i
+c_bind c sa = liftIO $ c_bind' c sa
+c_socket family t p = liftIO $ c_socket' family t p
 
 accept :: Socket                        -- Queue Socket
        -> Fiber (Socket,                   -- Readable Socket
@@ -222,15 +217,6 @@ bind (MkSocket s _family _stype _protocol socketStatus) addr = do
      withSockAddr addr $ \saddr -> do
        _status <- c_bind s saddr
        return (Bound addr)
-
-setSocketOption :: Socket
-                -> SocketOption -- Option Name
-                -> Int          -- Option Value
-                -> Fiber ()
-setSocketOption (MkSocket s _ _ _ _) so v = do
-   opt <- liftIO $ NS.packSocketOption' "setSocketOption" so
-   c_setsockopt s opt (fromIntegral v)
-
 -- Below are functions in Data.Streaming
 
 defaultSocketOptions :: SocketType -> [(NS.SocketOption, Int)]
@@ -277,13 +263,14 @@ bindPortGenEx sockOpts sockettype p s = do
         tryAddrs (addr1:rest@(_:_)) =
                                       catch
                                       (theBody addr1)
-                                      (\(_ :: IOException) -> tryAddrs rest)
+                                      -- (\(_ :: IOException) -> tryAddrs rest)
+                                      (\_ -> tryAddrs rest)
         tryAddrs (addr1:[])         = theBody addr1
         tryAddrs _                  = error "bindPort: addrs is empty"
 
         theBody addr =
           bracketOnError
-          io (socket (NS.addrFamily addr) (NS.addrSocketType addr) (NS.addrProtocol addr))
+          fiber (socket (NS.addrFamily addr) (NS.addrSocketType addr) (NS.addrProtocol addr))
           close
           (\sock -> do
               mapM_ (\(opt,v) -> NS.setSocketOption sock opt v) sockOpts
