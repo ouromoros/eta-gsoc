@@ -5,7 +5,7 @@ import Control.Concurrent.Fiber.MVar
 import System.Posix.Types (Channel)
 import Network.Socket (SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..))
 import qualified Network.Socket as NS
-import Foreign.C.Error (eINTR, getErrno, throwErrno)
+import Foreign.C.Error (eINTR, getErrno, throwErrno, eWOULDBLOCK, eAGAIN)
 import Control.Exception.Base (evaluate)
 import Foreign.C.Types
 import Data.Typeable
@@ -100,6 +100,33 @@ throwErrnoIfRetry pred loc f  =
 
 throwErrnoIfMinus1Retry :: (Eq a, Num a) => String -> Fiber a -> Fiber a
 throwErrnoIfMinus1Retry  = throwErrnoIfRetry (== -1)
+
+throwErrnoIfMinus1RetryMayBlock :: (Eq a, Num a)
+                                => String -> Fiber a -> Fiber b -> Fiber a
+throwErrnoIfMinus1RetryMayBlock  = throwErrnoIfRetryMayBlock (== -1)
+
+-- is geterror useful for fiber?
+throwErrnoIfRetryMayBlock
+                :: (a -> Bool)  -- ^ predicate to apply to the result value
+                                -- of the 'IO' operation
+                -> String       -- ^ textual description of the location
+                -> Fiber a         -- ^ the 'IO' operation to be executed
+                -> Fiber b         -- ^ action to execute before retrying if
+                                -- an immediate retry would block
+                -> Fiber a
+throwErrnoIfRetryMayBlock pred loc f on_block  =
+  do
+    res <- f
+    if pred res
+      then do
+        err <- liftIO getErrno
+        if err == eINTR
+          then throwErrnoIfRetryMayBlock pred loc f on_block
+          else if err == eWOULDBLOCK || err == eAGAIN
+                 then do _ <- on_block
+                         throwErrnoIfRetryMayBlock pred loc f on_block
+                 else liftIO $ throwErrno loc
+      else return res
 
 -- The below are copied from Network library since they are not accessible
 

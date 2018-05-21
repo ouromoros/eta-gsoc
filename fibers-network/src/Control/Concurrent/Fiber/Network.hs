@@ -3,6 +3,7 @@ module Control.Concurrent.Fiber.Network
   where
 import Control.Concurrent.Fiber (Fiber(..), liftIO, takeMVar, putMVar)
 import qualified Control.Concurrent.Fiber as F
+import qualified Control.Concurrent.MVar as M
 import qualified Network.Socket as NS
 import Control.Concurrent.Fiber.Network.Internal
 import GHC.IO.FD (FD(..))
@@ -63,8 +64,9 @@ c_listen c sa i = liftIO $ c_listen' c sa i
 c_bind c sa = liftIO $ c_bind' c sa
 c_socket family t p = liftIO $ c_socket' family t p
 
-modifyMVar m f = liftIO $ F.modifyMVar m f
 newMVar = liftIO . F.newMVar
+modifyMVar_ m f = liftIO $ M.modifyMVar_ m (\x -> fiber (f x))
+
 
 accept :: Socket                        -- Queue Socket
        -> Fiber (Socket,                   -- Readable Socket
@@ -97,19 +99,21 @@ connect :: Socket    -- Unconnected Socket
         -> SockAddr  -- Socket address stuff
         -> Fiber ()
 connect sock@(MkSocket s _family _stype _protocol socketStatus) addr = withSocketsDo $ do
- modifyMVar socketStatus $ \currentStatus -> do
+ modifyMVar_ socketStatus $ \currentStatus -> do
    if shouldError currentStatus
     then
-      ioError $ userError $
+      liftIO $ ioError $ userError $
         errLoc ++ ": can't connect to socket with status that is not bound or default."
     else do
       withSockAddr addr $ \saddr -> do
+
         let connectLoop = do
                connected <- c_connect s saddr
                unless connected $ do
                  connectBlocked
                  connectLoop
             connectBlocked = threadWaitConnect s
+
         connectLoop
         return Connected
  where
@@ -122,12 +126,12 @@ listen :: Socket  -- Connected & Bound Socket
        -> Int     -- Queue Length
        -> Fiber ()
 listen (MkSocket s _family _stype _protocol socketStatus) backlog = do
- modifyMVar socketStatus $ \ status -> do
+ modifyMVar_ socketStatus $ \ status -> do
    if | Bound sockAddr <- status -> do
         withSockAddr sockAddr $ \saddr -> c_listen s saddr (fromIntegral backlog)
         return Listening
       | otherwise ->
-        ioError $ userError $
+        liftIO $ ioError $ userError $
           "Network.Socket.listen: can't listen on socket with non-bound status."
 
 
@@ -137,7 +141,7 @@ readRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> CSize -> Fiber Int
 readRawBufferPtr loc !fd !buf !off !len = unsafe_read
   where
     do_read call = fromIntegral `fmap`
-                      throwErrnoIfMinus1Retry loc call
+                      throwErrnoIfMinus1RetryMayBlock loc call
                             (threadWaitRead (fromIntegral (fdFD fd)))
     unsafe_read = do_read (c_read (fdFD fd) (buf `plusPtr` off) len)
 
@@ -145,7 +149,7 @@ writeRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> CSize -> Fiber CInt
 writeRawBufferPtr loc !fd !buf !off !len = unsafe_write
   where
     do_write call = fromIntegral `fmap`
-                      throwErrnoIfMinus1Retry loc call
+                      throwErrnoIfMinus1RetryMayBlock loc call
                         (threadWaitWrite (fromIntegral (fdFD fd)))
     unsafe_write  = do_write (c_write (fdFD fd) (buf `plusPtr` off) len)
 
@@ -178,13 +182,13 @@ closeFd = c_close
 
 close :: Socket -> Fiber ()
 close (MkSocket s _ _ _ socketStatus) = do
- modifyMVar socketStatus $ \ status ->
+ modifyMVar_ socketStatus $ \ status ->
    case status of
      ConvertedToHandle ->
-         ioError (userError ("close: converted to a Handle, use hClose instead"))
+         liftIO $ ioError (userError ("close: converted to a Handle, use hClose instead"))
      Closed ->
          return status
-     _ -> closeFdWith closeFd s >> return Closed
+     _ -> liftIO (closeFdWith closeFd s) >> return Closed
 
 socket :: Family         -- Family Name (usually AF_INET)
        -> SocketType     -- Socket Type (usually Stream)
@@ -216,7 +220,7 @@ bind :: Socket    -- Unconnected Socket
            -> SockAddr  -- Address to Bind to
            -> Fiber ()
 bind (MkSocket s _family _stype _protocol socketStatus) addr = do
- modifyMVar socketStatus $ \ status -> do
+ modifyMVar_ socketStatus $ \ status -> do
   if status /= NotConnected
     then
      liftIO $ ioError $ userError $
