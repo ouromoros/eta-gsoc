@@ -6,7 +6,7 @@ import qualified Control.Concurrent.Fiber as F
 import qualified Control.Concurrent.MVar as M
 import qualified Network.Socket as NS
 import Control.Concurrent.Fiber.Network.Internal
-import GHC.IO.FD (FD(..))
+import GHC.IO.FD (FD(..), FDType(..), fdChannel)
 import Foreign
 import Foreign.C.Types
 import Java
@@ -117,7 +117,8 @@ connect sock@(MkSocket s _family _stype _protocol socketStatus) addr = withSocke
         connectLoop
         return Connected
  where
-   errLoc = "Network.Socket.connect: " ++ show sock
+   -- TODO: add sock as Show instance
+   errLoc = "Network.Socket.connect: " -- ++ show sock
    shouldError NotConnected = False
    shouldError (Bound _) = False
    shouldError _ = True
@@ -143,7 +144,7 @@ readRawBufferPtr loc !fd !buf !off !len = unsafe_read
     do_read call = fromIntegral `fmap`
                       throwErrnoIfMinus1RetryMayBlock loc call
                             (threadWaitRead (fromIntegral (fdFD fd)))
-    unsafe_read = do_read (c_read (fdFD fd) (buf `plusPtr` off) len)
+    unsafe_read  = do_read (c_read (fdChannel fd) (buf `plusPtr` off) len)
 
 writeRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> CSize -> Fiber CInt
 writeRawBufferPtr loc !fd !buf !off !len = unsafe_write
@@ -151,7 +152,7 @@ writeRawBufferPtr loc !fd !buf !off !len = unsafe_write
     do_write call = fromIntegral `fmap`
                       throwErrnoIfMinus1RetryMayBlock loc call
                         (threadWaitWrite (fromIntegral (fdFD fd)))
-    unsafe_write  = do_write (c_write (fdFD fd) (buf `plusPtr` off) len)
+    unsafe_write  = do_write (c_write (fdChannel fd) (buf `plusPtr` off) len)
 
 #else
   {- Implement for windows -}
