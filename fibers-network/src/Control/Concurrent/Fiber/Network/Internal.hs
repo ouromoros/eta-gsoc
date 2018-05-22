@@ -12,6 +12,7 @@ import Data.Typeable
 import Data.Word
 import Data.Bits
 import GHC.IO (IO(..))
+import GHC.IO.FD (FD(..), FDType(..))
 import Java
 
 data Socket
@@ -51,10 +52,14 @@ foreign import java unsafe "getPort"
   sockPort :: InetSocketAddress -> Int
 foreign import java unsafe "@static eta.network.Utils.inetAddrInt"
   inetAddrInt :: InetAddress -> Word32
+foreign import java unsafe "@static eta.network.Utils.isBlocking"
+  isBlocking' :: Channel -> IO Bool
+
 
 
 getSockAddr = liftIO . getSockAddr'
 c_setsockopt c so i = liftIO $ c_setsockopt' c so i
+isBlocking = liftIO . isBlocking'
 
 readMVar :: MVar a -> Fiber a
 readMVar m = do
@@ -85,6 +90,10 @@ withSockAddr addr f = case addr of
         padWord8s n a = replicate (abs (n - length word8s)) 0 ++ word8s
           where word8s = reverse (toWord8s a)
 
+socket2FD :: Socket -> Fiber FD
+socket2FD  (MkSocket fd _ _ _ _) = do
+  blocking <- isBlocking fd
+  return $ FD { fdFD = FDGeneric fd, fdIsNonBlocking = not blocking }
 
 isAcceptable :: Socket -> Fiber Bool
 -- #if defined(DOMAIN_SOCKET_SUPPORT)
@@ -137,6 +146,15 @@ throwErrnoIfMinus1Retry  = throwErrnoIfRetry (== -1)
 throwErrnoIfMinus1RetryMayBlock :: (Eq a, Num a)
                                 => String -> Fiber a -> Fiber b -> Fiber a
 throwErrnoIfMinus1RetryMayBlock  = throwErrnoIfRetryMayBlock (== -1)
+
+throwSocketErrorIfMinus1Retry
+    :: (Eq a, Num a)
+    => String  -- ^ textual description of the location
+    -> Fiber a    -- ^ the 'IO' operation to be executed
+    -> Fiber a
+
+{-# SPECIALIZE throwSocketErrorIfMinus1Retry :: String -> Fiber CInt -> Fiber CInt #-}
+throwSocketErrorIfMinus1Retry = throwErrnoIfMinus1Retry
 
 -- TODO: is Geterror useful for fiber?
 throwErrnoIfRetryMayBlock

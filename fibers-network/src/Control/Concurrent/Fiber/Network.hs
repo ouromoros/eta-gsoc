@@ -1,25 +1,34 @@
 {-# LANGUAGE BangPatterns, MultiWayIf, ScopedTypeVariables #-}
 module Control.Concurrent.Fiber.Network
   where
+
+import Control.Concurrent.Fiber.Network.Internal
+
 import Control.Concurrent.Fiber (Fiber(..), liftIO, takeMVar, putMVar)
 import qualified Control.Concurrent.Fiber as F
 import qualified Control.Concurrent.MVar as M
+
 import qualified Network.Socket as NS
-import Control.Concurrent.Fiber.Network.Internal
+import qualified Data.ByteString as B
+
 import GHC.IO.FD (FD(..), FDType(..), fdChannel)
 import Foreign
+import Foreign.C.String (withCStringLen)
 import Foreign.C.Types
 import Java
 import System.Posix.Types (Channel)
 import System.Posix.Internals (c_close)
-import Network.Socket (SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..))
 import qualified System.Posix.Internals as SPI
 import qualified Data.Streaming.Network as DSN
+
 import Data.Streaming.Network (HostPreference(..))
+import Data.Streaming.Network.Internal (HostPreference(..))
+import Network.Socket (SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..))
+
 import Data.ByteString (ByteString)
+import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
 import Control.Monad
 import Control.Exception (catch, IOException, bracketOnError)
-import Data.Streaming.Network.Internal (HostPreference(..))
 import GHC.Conc (closeFdWith) -- blocking?
 -- import Data.Streaming.Network (HostPreference)
 
@@ -161,23 +170,38 @@ writeRawBufferPtr loc !fd !buf !off !len = unsafe_write
 sendAll :: Socket      -- ^ Connected socket
         -> ByteString  -- ^ Data to send
         -> Fiber ()
-sendAll = undefined
+sendAll sock bs = do
+    sent <- send sock bs
+    when (sent < B.length bs) $ sendAll sock (B.drop sent bs)
 
 sendMany :: Socket        -- ^ Connected socket
          -> [ByteString]  -- ^ Data to send
          -> Fiber ()
-sendMany = undefined
+sendMany sock = sendAll sock . B.concat
 
 sendBuf :: Socket     -- Bound/Connected Socket
         -> Ptr Word8  -- Pointer to the data to send
         -> Int        -- Length of the buffer
         -> Fiber Int     -- Number of Bytes sent
-sendBuf = undefined
+sendBuf sock@(MkSocket s _family _stype _protocol _status) str len = do
+   fd <- socket2FD sock
+   liftM fromIntegral $
+-- writeRawBufferPtr is supposed to handle checking for errors, but it's broken
+-- on x86_64 because of GHC bug #12010 so we duplicate the check here. The call
+-- to throwSocketErrorIfMinus1Retry can be removed when no GHC version with the
+-- bug is supported.
+    throwSocketErrorIfMinus1Retry "Network.Socket.sendBuf" $ writeRawBufferPtr
+      "Network.Socket.sendBuf"
+      fd
+      (castPtr str)
+      0
+      (fromIntegral len)
 
 send :: Socket      -- ^ Connected socket
      -> ByteString  -- ^ Data to send
      -> Fiber Int      -- ^ Number of bytes sent
-send = undefined
+send sock xs = liftIO $ unsafeUseAsCStringLen xs $ \(str, len) ->
+  fiber $ sendBuf sock (castPtr str) len
 
 closeFd = c_close
 
