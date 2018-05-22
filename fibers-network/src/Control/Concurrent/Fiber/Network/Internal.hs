@@ -10,6 +10,7 @@ import Control.Exception.Base (evaluate)
 import Foreign.C.Types
 import Data.Typeable
 import Data.Word
+import Data.Bits
 import GHC.IO (IO(..))
 import Java
 
@@ -25,10 +26,17 @@ data Socket
 data {-# CLASS "java.net.InetSocketAddress" #-} InetSocketAddress =
   ISA (Object# InetSocketAddress)
   deriving Class
+type instance Inherits InetSocketAddress = '[SocketAddress]
 data {-# CLASS "java.net.InetAddress" #-} InetAddress =
   IA (Object# InetAddress)
   deriving Class
+type instance Inherits InetAddress = '[Object]
 
+
+foreign import java unsafe "@new" mkInetSocketAddress
+  :: InetAddress -> Int -> InetSocketAddress
+
+foreign import java unsafe "@static java.net.InetAddress.getByAddress" getByAddress :: JByteArray -> InetAddress
 
 fiber :: Fiber a -> IO a
 fiber (Fiber a) = IO a
@@ -48,10 +56,35 @@ foreign import java unsafe "@static eta.network.Utils.inetAddrInt"
 getSockAddr = liftIO . getSockAddr'
 c_setsockopt c so i = liftIO $ c_setsockopt' c so i
 
-readMVar = undefined
+readMVar :: MVar a -> Fiber a
+readMVar m = do
+  a <- takeMVar m
+  putMVar m a
+  return a
+
+toJByteArray :: [Word8] -> JByteArray
+toJByteArray word8s = toJava bytes
+  where bytes = map fromIntegral word8s :: [Byte]
 
 withSockAddr :: SockAddr -> (SocketAddress -> Fiber a) -> Fiber a
-withSockAddr = undefined
+withSockAddr addr f = case addr of
+  SockAddrInet port host ->
+    f $ superCast $ mkInetSocketAddress
+      (getByAddress . toJByteArray $ padWord8s 4 host)
+      (fromIntegral port)
+  SockAddrInet6 port _ (w1, w2, w3, w4) _ ->
+    f $ superCast $ mkInetSocketAddress
+      (getByAddress . toJByteArray $ concatMap (padWord8s 4) [w1, w2, w3, w4])
+      (fromIntegral port)
+  _ -> error "Network.Socket.Types.withSockAddr: Invalid socket address type."
+  where toWord8s :: (Bits a, Integral a) => a -> [Word8]
+        toWord8s 0 = []
+        toWord8s n = fromIntegral (n .&. 255) : toWord8s (n `shiftR` 8)
+
+        padWord8s :: (Bits a, Integral a) => Int -> a -> [Word8]
+        padWord8s n a = replicate (abs (n - length word8s)) 0 ++ word8s
+          where word8s = reverse (toWord8s a)
+
 
 isAcceptable :: Socket -> Fiber Bool
 -- #if defined(DOMAIN_SOCKET_SUPPORT)
@@ -105,7 +138,7 @@ throwErrnoIfMinus1RetryMayBlock :: (Eq a, Num a)
                                 => String -> Fiber a -> Fiber b -> Fiber a
 throwErrnoIfMinus1RetryMayBlock  = throwErrnoIfRetryMayBlock (== -1)
 
--- is geterror useful for fiber?
+-- TODO: is Geterror useful for fiber?
 throwErrnoIfRetryMayBlock
                 :: (a -> Bool)  -- ^ predicate to apply to the result value
                                 -- of the 'IO' operation
