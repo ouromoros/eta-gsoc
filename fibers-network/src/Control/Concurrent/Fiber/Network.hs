@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns, MultiWayIf #-}
+{-# LANGUAGE BangPatterns, MultiWayIf, ScopedTypeVariables #-}
 module Control.Concurrent.Fiber.Network
   where
 import Control.Concurrent.Fiber (Fiber(..), liftIO, takeMVar, putMVar)
@@ -143,7 +143,7 @@ readRawBufferPtr loc !fd !buf !off !len = unsafe_read
   where
     do_read call = fromIntegral `fmap`
                       throwErrnoIfMinus1RetryMayBlock loc call
-                            (threadWaitRead (fromIntegral (fdFD fd)))
+                            (threadWaitRead (fdChannel fd))
     unsafe_read  = do_read (c_read (fdChannel fd) (buf `plusPtr` off) len)
 
 writeRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> CSize -> Fiber CInt
@@ -151,7 +151,7 @@ writeRawBufferPtr loc !fd !buf !off !len = unsafe_write
   where
     do_write call = fromIntegral `fmap`
                       throwErrnoIfMinus1RetryMayBlock loc call
-                        (threadWaitWrite (fromIntegral (fdFD fd)))
+                        (threadWaitWrite (fdChannel fd))
     unsafe_write  = do_write (c_write (fdChannel fd) (buf `plusPtr` off) len)
 
 #else
@@ -276,8 +276,7 @@ bindPortGenEx sockOpts sockettype p s = do
         tryAddrs (addr1:rest@(_:_)) =
                                       catch
                                       (theBody addr1)
-                                      -- (\(_ :: IOException) -> tryAddrs rest)
-                                      (\_ -> tryAddrs rest)
+                                      (\(_ :: IOException) -> tryAddrs rest)
         tryAddrs (addr1:[])         = theBody addr1
         tryAddrs _                  = error "bindPort: addrs is empty"
 
