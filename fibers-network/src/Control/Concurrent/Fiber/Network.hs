@@ -1,5 +1,53 @@
 {-# LANGUAGE BangPatterns, MultiWayIf, ScopedTypeVariables #-}
 module Control.Concurrent.Fiber.Network
+  (SocketType(..)
+  ,Family(..)
+  ,ProtocolNumber(..)
+  ,SocketStatus(..)
+  ,SockAddr(..)
+  ,SocketOption(..)
+  ,Socket(..)
+  ,InetSocketAddress
+  ,InetAddress
+  ,SocketAddress
+  ,AddrInfo(..)
+  ,AddrInfoFlag(..)
+  ,NameInfoFlag(..)
+  ,mkInetSocketAddress
+  ,getByAddress
+  ,defaultSocketOptions
+  ,defaultHints
+  ,defaultProtocol
+  ,getAddrInfo
+
+  ,withSocketsDo
+  ,withSockAddr
+  ,getSockAddr
+  ,isBlocking
+  ,socket2FD
+  ,newSockAddr
+  ,isAcceptable
+  ,setSocketOption
+  ,setNonBlock
+
+  ,accept
+  ,connect
+  ,listen
+  ,send
+  ,sendAll
+  ,sendBuf
+  ,sendMany
+  ,recv
+  ,close
+  ,socket
+  ,bind
+
+  ,readRawBufferPtr
+  ,writeRawBufferPtr
+  ,bindPortTCP
+  ,bindPortGen
+  ,bindPortGenEx
+    )
   where
 
 import Control.Concurrent.Fiber.Network.Internal
@@ -23,13 +71,16 @@ import qualified Data.Streaming.Network as DSN
 
 import Data.Streaming.Network (HostPreference(..))
 import Data.Streaming.Network.Internal (HostPreference(..))
-import Network.Socket (SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..))
+import Network.Socket (AddrInfo(..), SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..), AddrInfoFlag(..), NameInfoFlag(..), defaultProtocol)
 
 import Data.ByteString (ByteString)
+import Data.ByteString.Internal (createAndTrim)
 import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
 import Control.Monad
-import Control.Exception (catch, IOException, bracketOnError)
+import Control.Exception (throwIO, catch, IOException, bracketOnError)
+import System.IO.Error 
 import GHC.Conc (closeFdWith) -- blocking?
+import GHC.IO.Exception
 -- import Data.Streaming.Network (HostPreference)
 
 foreign import java unsafe "@static eta.network.Utils.connect"
@@ -43,15 +94,15 @@ foreign import java unsafe "@static eta.network.Utils.bind"
 foreign import java unsafe "@static eta.network.Utils.socket"
   c_socket' :: CInt -> CInt -> CInt -> IO Channel
 
-foreign import java unsafe "@static eta.runtime.concurrent.waitAccept"
+foreign import java unsafe "@static eta.runtime.concurrent.Concurrent.waitAccept"
   threadWaitAccept' :: Channel -> IO ()
-foreign import java unsafe "@static eta.runtime.concurrent.waitConnect"
+foreign import java unsafe "@static eta.runtime.concurrent.Concurrent.waitConnect"
   threadWaitConnect' :: Channel -> IO ()
-foreign import java unsafe "@static eta.runtime.concurrent.waitRead"
+foreign import java unsafe "@static eta.runtime.concurrent.Concurrent.waitRead"
   threadWaitRead' :: Channel -> IO ()
-foreign import java unsafe "@static eta.runtime.concurrent.waitWrite"
+foreign import java unsafe "@static eta.runtime.concurrent.Concurrent.waitWrite"
   threadWaitWrite' :: Channel -> IO ()
-foreign import java unsafe "@static eta.control.concurrent.fiber.network.Utils.setNonBlock"
+foreign import java unsafe "@static eta.fiber.network.Utils.setNonBlock"
   setNonBlock' :: Channel -> IO ()
 
 setNonBlock :: Channel -> Fiber ()
@@ -75,6 +126,7 @@ c_socket family t p = liftIO $ c_socket' family t p
 
 newMVar = liftIO . F.newMVar
 modifyMVar_ m f = liftIO $ M.modifyMVar_ m (\x -> fiber (f x))
+getAddrInfo mHints node service = liftIO $ NS.getAddrInfo mHints node service
 
 
 accept :: Socket                        -- Queue Socket
@@ -167,6 +219,39 @@ writeRawBufferPtr loc !fd !buf !off !len = unsafe_write
   {- Implement for windows -}
 #endif
 
+mkInvalidRecvArgError :: String -> IOError
+mkInvalidRecvArgError loc = ioeSetErrorString (mkIOError
+                                    InvalidArgument
+                                    loc Nothing Nothing) "non-positive length"
+mkEOFError :: String -> IOError
+mkEOFError loc = ioeSetErrorString (mkIOError EOF loc Nothing Nothing) "end of file"
+
+
+recv :: Socket         -- ^ Connected socket
+     -> Int            -- ^ Maximum number of bytes to receive
+     -> Fiber ByteString  -- ^ Data received
+recv sock nbytes
+    | nbytes < 0 = liftIO $ ioError (mkInvalidRecvArgError "Network.Socket.ByteString.recv")
+    | otherwise  = liftIO $ createAndTrim nbytes $ \ptr ->
+        catch
+          (fiber (recvBuf sock ptr nbytes))
+          (\e -> if isEOFError e then return 0 else throwIO e)
+
+recvBuf :: Socket -> Ptr Word8 -> Int -> Fiber Int
+recvBuf sock@(MkSocket s _family _stype _protocol _status) ptr nbytes
+ | nbytes <= 0 = liftIO $ ioError (mkInvalidRecvArgError "Network.Socket.recvBuf")
+ | otherwise   = do
+        fd <- socket2FD sock
+        len <-
+-- see comment in sendBuf above.
+            throwSocketErrorIfMinus1Retry "Network.Socket.recvBuf" $
+                readRawBufferPtr "Network.Socket.recvBuf"
+                fd ptr 0 (fromIntegral nbytes)
+        let len' = fromIntegral len
+        if len' == 0
+         then liftIO $ ioError (mkEOFError "Network.Socket.recvBuf")
+         else return len'
+
 sendAll :: Socket      -- ^ Connected socket
         -> ByteString  -- ^ Data to send
         -> Fiber ()
@@ -254,6 +339,17 @@ bind (MkSocket s _family _stype _protocol socketStatus) addr = do
      withSockAddr addr $ \saddr -> do
        _status <- c_bind s saddr
        return (Bound addr)
+
+defaultHints :: AddrInfo
+defaultHints = AddrInfo {
+                         addrFlags = [],
+                         addrFamily = AF_UNSPEC,
+                         addrSocketType = NoSocketType,
+                         addrProtocol = defaultProtocol,
+                         addrAddress = undefined,
+                         addrCanonName = undefined
+                        }
+
 -- Below are functions in Data.Streaming
 
 defaultSocketOptions :: SocketType -> [(NS.SocketOption, Int)]
@@ -284,7 +380,7 @@ bindPortGenEx sockOpts sockettype p s = do
                 Host s' -> Just s'
                 _ -> Nothing
         port = Just . show $ p
-    addrs <- liftIO $ NS.getAddrInfo (Just hints) host port
+    addrs <- liftIO $ getAddrInfo (Just hints) host port
     -- Choose an IPv6 socket if exists.  This ensures the socket can
     -- handle both IPv4 and IPv6 if v6only is false.
     let addrs4 = filter (\x -> NS.addrFamily x /= NS.AF_INET6) addrs

@@ -1,4 +1,40 @@
 module Control.Concurrent.Fiber.Network.Internal
+  (SocketType(..)
+  ,Family(..)
+  ,ProtocolNumber(..)
+  ,SocketStatus(..)
+  ,SockAddr(..)
+  ,SocketOption(..)
+  ,Socket(..)
+  ,InetSocketAddress
+  ,InetAddress
+  ,SocketAddress
+  ,mkInetSocketAddress
+  ,getByAddress
+
+  ,readMVar
+  ,fiber
+
+  ,withSocketsDo
+  ,withSockAddr
+  ,getSockAddr
+  ,isBlocking
+  ,c_setsockopt
+  ,socket2FD
+  ,newSockAddr
+  ,packSocketOption
+  ,packSocketTypeOrThrow
+  ,setSocketOption
+  ,isAcceptable
+
+  ,toJByteArray
+  ,throwErrno
+  ,throwErrnoIfRetry
+  ,throwErrnoIfMinus1Retry
+  ,throwErrnoIfMinus1RetryMayBlock
+  ,throwErrnoIfRetryMayBlock
+  ,throwSocketErrorIfMinus1Retry
+    )
   where
 import Control.Concurrent.Fiber
 import Control.Concurrent.Fiber.MVar
