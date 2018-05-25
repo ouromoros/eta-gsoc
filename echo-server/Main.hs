@@ -12,8 +12,8 @@ main = fiber main'
 main' :: Fiber ()
 main' = withSocketsDo $
     do addrinfos <- getAddrInfo
-                    (Just (defaultHints {addrFlags = [AI_PASSIVE]}))
-                    Nothing (Just "3000")
+                    (Just defaultHints)
+                    (Just "127.0.0.1") (Just "3000")
        let serveraddr = head addrinfos
        sock <- socket (addrFamily serveraddr) Stream defaultProtocol
        bind sock (addrAddress serveraddr)
