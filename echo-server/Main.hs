@@ -3,6 +3,7 @@ module Main where
 
 import Control.Monad (unless)
 import qualified Data.ByteString as S
+import qualified Data.ByteString.Char8 as B
 import Control.Concurrent.Fiber
 import Control.Concurrent.Fiber.Network
 import Control.Concurrent.Fiber.Network.Internal (fiber)
@@ -10,21 +11,21 @@ import Control.Concurrent.Fiber.Network.Internal (fiber)
 main = fiber main'
 
 main' :: Fiber ()
-main' = withSocketsDo $
-    do addrinfos <- getAddrInfo
-                    (Just defaultHints)
-                    (Just "127.0.0.1") (Just "3000")
-       let serveraddr = head addrinfos
-       sock <- socket (addrFamily serveraddr) Stream defaultProtocol
-       bind sock (addrAddress serveraddr)
-       listen sock 1
-       (conn, _) <- accept sock
-       talk conn
-       close conn
-       close sock
+main' = withSocketsDo $ do
+    sock <- socket AF_INET (ServerSocket Stream) 5    -- create socket
+    setSocketOption sock ReuseAddr 1   -- make socket immediately reusable - eases debugging.
+    bind sock (SockAddrInet 4242 0)   -- listen on TCP port 4242.
+    listen sock 2                              -- set a max of 2 queued connections
+    mainLoop sock                              
 
-    where
-      talk :: Socket -> Fiber ()
-      talk conn =
-          do msg <- recv conn 1024
-             unless (S.null msg) $ sendAll conn msg >> talk conn
+
+mainLoop :: Socket -> Fiber ()
+mainLoop sock = do
+    conn <- accept sock     -- accept a connection and handle it
+    runConn conn            -- run our server's logic
+    mainLoop sock           -- repeat
+ 
+runConn :: (Socket, SockAddr) -> Fiber ()
+runConn (sock, _) = do
+    send sock $ B.pack "Hello!\n"
+    close sock
