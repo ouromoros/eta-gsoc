@@ -101,28 +101,28 @@ foreign import java unsafe "@static eta.network.Utils.isBlocking"
 
 foreign import prim "eta.fiber.network.Utils.waitAccept"
   threadWaitAccept# :: Object# a -> State# s -> State# s
-foreign import prim "@static eta.runtime.concurrent.Concurrent.waitConnect"
-  threadWaitConnect# :: Channel -> State# s -> State# s
-foreign import prim "@static eta.runtime.concurrent.Concurrent.waitRead"
-  threadWaitRead# :: Channel -> State# s -> State# s
-foreign import prim "@static eta.runtime.concurrent.Concurrent.waitWrite"
-  threadWaitWrite# :: Channel -> State# s -> State# s
+foreign import prim "@static eta.fiber.network.Utils.waitConnect"
+  threadWaitConnect# :: Object# a -> State# s -> State# s
+foreign import prim "@static eta.fiber.network.Utils.waitRead"
+  threadWaitRead# :: Object# a -> State# s -> State# s
+foreign import prim "@static eta.fiber.network.Utils.waitWrite"
+  threadWaitWrite# :: Object# a -> State# s -> State# s
 
 threadWaitAccept :: Channel -> Fiber ()
 threadWaitAccept (Channel o) = Fiber $ \s ->
   case threadWaitAccept# o s of
     s' -> (# s', () #)
 threadWaitConnect :: Channel -> Fiber ()
-threadWaitConnect c = Fiber $ \s ->
-  case threadWaitConnect# c s of
+threadWaitConnect (Channel o) = Fiber $ \s ->
+  case threadWaitConnect# o s of
     s' -> (# s', () #)
 threadWaitWrite :: Channel -> Fiber ()
-threadWaitWrite c = Fiber $ \s ->
-  case threadWaitWrite# c s of
+threadWaitWrite (Channel o) = Fiber $ \s ->
+  case threadWaitWrite# o s of
     s' -> (# s', () #)
 threadWaitRead :: Channel -> Fiber ()
-threadWaitRead c = Fiber $ \s ->
-  case threadWaitRead# c s of
+threadWaitRead (Channel o) = Fiber $ \s ->
+  case threadWaitRead# o s of
     s' -> (# s', () #)
 
 getSockAddr = liftIO . getSockAddr'
