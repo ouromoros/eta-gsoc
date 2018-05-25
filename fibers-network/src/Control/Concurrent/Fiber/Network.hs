@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns, MultiWayIf, ScopedTypeVariables #-}
 module Control.Concurrent.Fiber.Network
   (SocketType(..)
   ,Family(..)
@@ -94,27 +93,11 @@ foreign import java unsafe "@static eta.network.Utils.bind"
 foreign import java unsafe "@static eta.network.Utils.socket"
   c_socket' :: CInt -> CInt -> CInt -> IO Channel
 
-foreign import java unsafe "@static eta.runtime.concurrent.Concurrent.waitAccept"
-  threadWaitAccept' :: Channel -> IO ()
-foreign import java unsafe "@static eta.runtime.concurrent.Concurrent.waitConnect"
-  threadWaitConnect' :: Channel -> IO ()
-foreign import java unsafe "@static eta.runtime.concurrent.Concurrent.waitRead"
-  threadWaitRead' :: Channel -> IO ()
-foreign import java unsafe "@static eta.runtime.concurrent.Concurrent.waitWrite"
-  threadWaitWrite' :: Channel -> IO ()
 foreign import java unsafe "@static eta.fiber.network.Utils.setNonBlock"
   setNonBlock' :: Channel -> IO ()
 
 setNonBlock :: Channel -> Fiber ()
 setNonBlock = liftIO . setNonBlock'
-threadWaitAccept :: Channel -> Fiber ()
-threadWaitAccept = liftIO . threadWaitAccept'
-threadWaitConnect :: Channel -> Fiber ()
-threadWaitConnect = liftIO . threadWaitConnect'
-threadWaitWrite :: Channel -> Fiber ()
-threadWaitWrite = liftIO . threadWaitWrite'
-threadWaitRead :: Channel -> Fiber ()
-threadWaitRead = liftIO . threadWaitRead'
 
 c_connect c sa = liftIO $ c_connect' c sa
 c_accept = liftIO . c_accept'

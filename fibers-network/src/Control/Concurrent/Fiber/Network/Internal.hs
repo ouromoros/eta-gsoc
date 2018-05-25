@@ -15,6 +15,11 @@ module Control.Concurrent.Fiber.Network.Internal
   ,readMVar
   ,fiber
 
+  ,threadWaitAccept
+  ,threadWaitConnect
+  ,threadWaitRead
+  ,threadWaitWrite
+
   ,withSocketsDo
   ,withSockAddr
   ,getSockAddr
@@ -38,18 +43,21 @@ module Control.Concurrent.Fiber.Network.Internal
   where
 import Control.Concurrent.Fiber
 import Control.Concurrent.Fiber.MVar
-import System.Posix.Types (Channel)
+import System.Posix.Types (Channel(..))
 import Network.Socket (SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..))
 import qualified Network.Socket as NS
 import Foreign.C.Error (eINTR, getErrno, throwErrno, eWOULDBLOCK, eAGAIN)
 import Control.Exception.Base (evaluate)
+import Control.Monad
 import Foreign.C.Types
 import Data.Typeable
 import Data.Word
 import Data.Bits
 import GHC.IO (IO(..))
 import GHC.IO.FD (FD(..), FDType(..))
+import GHC.Base
 import Java
+import Java.Core
 
 data Socket
   = MkSocket
@@ -91,7 +99,31 @@ foreign import java unsafe "@static eta.network.Utils.inetAddrInt"
 foreign import java unsafe "@static eta.network.Utils.isBlocking"
   isBlocking' :: Channel -> IO Bool
 
+foreign import prim "eta.fiber.network.Utils.waitAccept"
+  threadWaitAccept# :: Object# a -> State# s -> State# s
+foreign import prim "@static eta.runtime.concurrent.Concurrent.waitConnect"
+  threadWaitConnect# :: Channel -> State# s -> State# s
+foreign import prim "@static eta.runtime.concurrent.Concurrent.waitRead"
+  threadWaitRead# :: Channel -> State# s -> State# s
+foreign import prim "@static eta.runtime.concurrent.Concurrent.waitWrite"
+  threadWaitWrite# :: Channel -> State# s -> State# s
 
+threadWaitAccept :: Channel -> Fiber ()
+threadWaitAccept (Channel o) = Fiber $ \s ->
+  case threadWaitAccept# o s of
+    s' -> (# s', () #)
+threadWaitConnect :: Channel -> Fiber ()
+threadWaitConnect c = Fiber $ \s ->
+  case threadWaitConnect# c s of
+    s' -> (# s', () #)
+threadWaitWrite :: Channel -> Fiber ()
+threadWaitWrite c = Fiber $ \s ->
+  case threadWaitWrite# c s of
+    s' -> (# s', () #)
+threadWaitRead :: Channel -> Fiber ()
+threadWaitRead c = Fiber $ \s ->
+  case threadWaitRead# c s of
+    s' -> (# s', () #)
 
 getSockAddr = liftIO . getSockAddr'
 c_setsockopt c so i = liftIO $ c_setsockopt' c so i
