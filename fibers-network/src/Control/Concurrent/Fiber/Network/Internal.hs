@@ -9,6 +9,8 @@ module Control.Concurrent.Fiber.Network.Internal
   ,InetSocketAddress
   ,InetAddress
   ,SocketAddress
+  ,PortNumber
+  ,HostAddress
   ,mkInetSocketAddress
   ,getByAddress
 
@@ -39,12 +41,14 @@ module Control.Concurrent.Fiber.Network.Internal
   ,throwErrnoIfMinus1RetryMayBlock
   ,throwErrnoIfRetryMayBlock
   ,throwSocketErrorIfMinus1Retry
+  ,throwSocketErrorWaitRead
+  ,throwSocketErrorWaitWrite
     )
   where
 import Control.Concurrent.Fiber
 import Control.Concurrent.Fiber.MVar
 import System.Posix.Types (Channel(..))
-import Network.Socket (SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..))
+import Network.Socket (SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..), HostAddress, PortNumber)
 import qualified Network.Socket as NS
 import Foreign.C.Error (eINTR, getErrno, throwErrno, eWOULDBLOCK, eAGAIN)
 import Control.Exception.Base (evaluate)
@@ -86,6 +90,8 @@ foreign import java unsafe "@static java.net.InetAddress.getByAddress" getByAddr
 fiber :: Fiber a -> IO a
 fiber (Fiber a) = IO a
 
+foreign import java unsafe "@static eta.network.Utils.getsockopt"
+  c_getsockopt' :: Channel -> SOption -> IO CInt
 foreign import java unsafe "@static eta.network.Utils.setsockopt"
   c_setsockopt' :: Channel -> SOption -> CInt ->  IO ()
 foreign import java unsafe "@static eta.network.Utils.getSockAddr" 
@@ -163,6 +169,7 @@ foreign import prim "eta.fiber.network.Utils.registerConnect"
 
 getSockAddr = liftIO . getSockAddr'
 c_setsockopt c so i = liftIO $ c_setsockopt' c so i
+c_getsockopt c so = liftIO $ c_getsockopt' c so
 isBlocking = liftIO . isBlocking'
 
 readMVar :: MVar a -> Fiber a
@@ -260,7 +267,13 @@ throwSocketErrorIfMinus1Retry
 {-# SPECIALIZE throwSocketErrorIfMinus1Retry :: String -> Fiber CInt -> Fiber CInt #-}
 throwSocketErrorIfMinus1Retry = throwErrnoIfMinus1Retry
 
--- TODO: is Geterror useful for fiber?
+throwSocketErrorWaitRead :: (Eq a, Num a) => Socket -> String -> Fiber a -> Fiber a
+throwSocketErrorWaitRead _sock _name io = io
+
+throwSocketErrorWaitWrite :: (Eq a, Num a) => Socket -> String -> Fiber a -> Fiber a
+throwSocketErrorWaitWrite _sock _name io = io
+
+-- is GetError useful for fiber?
 throwErrnoIfRetryMayBlock
                 :: (a -> Bool)  -- ^ predicate to apply to the result value
                                 -- of the 'IO' operation
@@ -339,6 +352,13 @@ setSocketOption (MkSocket s _ _ _ _) so v = do
    opt <- packSocketOption' "setSocketOption" so
    c_setsockopt s opt (fromIntegral v)
 
+getSocketOption :: Socket
+                -> SocketOption  -- Option Name
+                -> Fiber Int        -- Option Value
+getSocketOption (MkSocket s _ _ _ _) so = do
+   opt <- packSocketOption' "getSocketOption" so
+   fmap fromIntegral $ c_getsockopt s opt
+
 
 data {-# CLASS "java.net.SocketOption" #-} SOption = SOption (Object# SOption)
 
@@ -385,5 +405,4 @@ foreign import java unsafe
 foreign import java unsafe
   "@static @field java.net.StandardSocketOptions.TCP_NODELAY"
   tCP_NODELAY :: SOption
-
 

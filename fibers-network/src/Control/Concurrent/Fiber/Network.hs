@@ -12,6 +12,8 @@ module Control.Concurrent.Fiber.Network
   ,AddrInfo(..)
   ,AddrInfoFlag(..)
   ,NameInfoFlag(..)
+  ,PortNumber
+  ,HostAddress
   ,mkInetSocketAddress
   ,getByAddress
   ,defaultSocketOptions
@@ -28,6 +30,19 @@ module Control.Concurrent.Fiber.Network
   ,isAcceptable
   ,setSocketOption
   ,setNonBlock
+
+  -- * Special constants
+  , aNY_PORT
+  , iNADDR_ANY
+#if defined(IPV6_SOCKET_SUPPORT)
+  , iN6ADDR_ANY
+#endif
+  , sOMAXCONN
+  , sOL_SOCKET
+#ifdef SCM_RIGHTS
+  , sCM_RIGHTS
+#endif
+  , maxListenQueue
 
   ,accept
   ,connect
@@ -92,6 +107,9 @@ foreign import java unsafe "@static eta.network.Utils.bind"
   c_bind' :: Channel -> SocketAddress -> IO CInt
 foreign import java unsafe "@static eta.network.Utils.socket"
   c_socket' :: CInt -> CInt -> CInt -> IO Channel
+foreign import java safe "@static eta.network.Utils.sendto"
+  c_sendto' :: Channel -> Ptr a -> CSize -> SocketAddress -> IO CInt
+
 
 foreign import java unsafe "@static eta.fiber.network.Utils.setNonBlock"
   setNonBlock' :: Channel -> IO ()
@@ -106,11 +124,27 @@ c_write fd buf len = liftIO $ SPI.c_write fd buf len
 c_listen c sa i = liftIO $ c_listen' c sa i
 c_bind c sa = liftIO $ c_bind' c sa
 c_socket family t p = liftIO $ c_socket' family t p
+c_sendto c p s sa = liftIO $ c_sendto' c p s sa
 
 newMVar = liftIO . F.newMVar
 modifyMVar_ m f = liftIO $ M.modifyMVar_ m (\x -> fiber (f x))
 getAddrInfo mHints node service = liftIO $ NS.getAddrInfo mHints node service
+getNameInfo f h s addr = liftIO $ NS.getNameInfo f h s addr
 
+mkSocket :: Channel
+         -> Family
+         -> SocketType
+         -> ProtocolNumber
+         -> SocketStatus
+         -> Fiber Socket
+mkSocket fd fam sType pNum stat = do
+   mStat <- newMVar stat
+   withSocketsDo $ return ()
+   return (MkSocket fd fam sType pNum mStat)
+
+
+fdSocket :: Socket -> Channel
+fdSocket (MkSocket fd _ _ _ _) = fd
 
 accept :: Socket                        -- Queue Socket
        -> Fiber (Socket,                   -- Readable Socket
@@ -179,36 +213,13 @@ listen (MkSocket s _family _stype _protocol socketStatus) backlog = do
         liftIO $ ioError $ userError $
           "Network.Socket.listen: can't listen on socket with non-bound status."
 
-
-#if !defined(mingw32_HOST_OS)
-
-readRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> CSize -> Fiber Int
-readRawBufferPtr loc !fd !buf !off !len = unsafe_read
-  where
-    do_read call = fromIntegral `fmap`
-                      throwErrnoIfMinus1RetryMayBlock loc call
-                            (threadWaitRead (fdChannel fd))
-    unsafe_read  = do_read (c_read (fdChannel fd) (buf `plusPtr` off) len)
-
-writeRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> CSize -> Fiber CInt
-writeRawBufferPtr loc !fd !buf !off !len = unsafe_write
-  where
-    do_write call = fromIntegral `fmap`
-                      throwErrnoIfMinus1RetryMayBlock loc call
-                        (threadWaitWrite (fdChannel fd))
-    unsafe_write  = do_write (c_write (fdChannel fd) (buf `plusPtr` off) len)
-
-#else
-  {- Implement for windows -}
-#endif
-
 mkInvalidRecvArgError :: String -> IOError
 mkInvalidRecvArgError loc = ioeSetErrorString (mkIOError
                                     InvalidArgument
                                     loc Nothing Nothing) "non-positive length"
+
 mkEOFError :: String -> IOError
 mkEOFError loc = ioeSetErrorString (mkIOError EOF loc Nothing Nothing) "end of file"
-
 
 recv :: Socket         -- ^ Connected socket
      -> Int            -- ^ Maximum number of bytes to receive
@@ -226,7 +237,6 @@ recvBuf sock@(MkSocket s _family _stype _protocol _status) ptr nbytes
  | otherwise   = do
         fd <- socket2FD sock
         len <-
--- see comment in sendBuf above.
             throwSocketErrorIfMinus1Retry "Network.Socket.recvBuf" $
                 readRawBufferPtr "Network.Socket.recvBuf"
                 fd ptr 0 (fromIntegral nbytes)
@@ -234,6 +244,17 @@ recvBuf sock@(MkSocket s _family _stype _protocol _status) ptr nbytes
         if len' == 0
          then liftIO $ ioError (mkEOFError "Network.Socket.recvBuf")
          else return len'
+
+recvBufFrom :: Socket -> Ptr a -> Int -> Fiber (Int, SockAddr)
+recvBufFrom sock@(MkSocket s family _stype _protocol _status) ptr nbytes
+ | nbytes <= 0 = liftIO $ ioError (mkInvalidRecvArgError "Network.Socket.recvFrom")
+ | otherwise   = error "recvBufFrom: Not implemented yet"
+
+send :: Socket      -- ^ Connected socket
+     -> ByteString  -- ^ Data to send
+     -> Fiber Int      -- ^ Number of bytes sent
+send sock xs = liftIO $ unsafeUseAsCStringLen xs $ \(str, len) ->
+  fiber $ sendBuf sock (castPtr str) len
 
 sendAll :: Socket      -- ^ Connected socket
         -> ByteString  -- ^ Data to send
@@ -265,11 +286,30 @@ sendBuf sock@(MkSocket s _family _stype _protocol _status) str len = do
       0
       (fromIntegral len)
 
-send :: Socket      -- ^ Connected socket
-     -> ByteString  -- ^ Data to send
-     -> Fiber Int      -- ^ Number of bytes sent
-send sock xs = liftIO $ unsafeUseAsCStringLen xs $ \(str, len) ->
-  fiber $ sendBuf sock (castPtr str) len
+sendTo :: Socket      -- ^ Socket
+       -> ByteString  -- ^ Data to send
+       -> SockAddr    -- ^ Recipient address
+       -> Fiber Int      -- ^ Number of bytes sent
+sendTo sock xs addr =
+    liftIO $  unsafeUseAsCStringLen xs $ \(str, len) -> fiber $ sendBufTo sock str len addr
+
+sendAllTo :: Socket      -- ^ Socket
+          -> ByteString  -- ^ Data to send
+          -> SockAddr    -- ^ Recipient address
+          -> Fiber ()
+sendAllTo sock xs addr = do
+    sent <- sendTo sock xs addr
+    when (sent < B.length xs) $ sendAllTo sock (B.drop sent xs) addr
+
+sendBufTo :: Socket            -- (possibly) bound/connected Socket
+          -> Ptr a -> Int  -- Data to send
+          -> SockAddr
+          -> Fiber Int            -- Number of Bytes sent
+sendBufTo sock@(MkSocket s _family _stype _protocol _status) ptr nbytes addr = do
+ withSockAddr addr $ \p_addr -> do
+   liftM fromIntegral $
+     throwSocketErrorWaitWrite sock "Network.Socket.sendTo" $
+        c_sendto s ptr (fromIntegral $ nbytes) p_addr
 
 closeFd = c_close
 
@@ -309,6 +349,56 @@ socket family stype protocol = do
 #endif
     return sock
 
+#if defined(DOMAIN_SOCKET_SUPPORT)
+socketPair :: Family              -- Family Name (usually AF_INET or AF_INET6)
+           -> SocketType          -- Socket Type (usually Stream)
+           -> ProtocolNumber      -- Protocol Number
+           -> IO (Socket, Socket) -- unnamed and connected.
+socketPair family stype protocol = do
+    liftIO $ allocaBytes (2 * sizeOf (1 :: CInt)) $ \ fdArr -> fiber $ do
+    c_stype <- packSocketTypeOrThrow "socketPair" stype
+    _rc <- throwSocketErrorIfMinus1Retry "Network.Socket.socketpair" $
+                c_socketpair (packFamily family) c_stype protocol fdArr
+    [fd1,fd2] <- liftIO $ peekArray 2 fdArr
+    s1 <- mkNonBlockingSocket fd1
+    s2 <- mkNonBlockingSocket fd2
+    return (s1,s2)
+  where
+    mkNonBlockingSocket fd = do
+       setNonBlock fd
+       stat <- newMVar Connected
+       withSocketsDo $ return ()
+       return (MkSocket fd family stype protocol stat)
+
+foreign import ccall unsafe "socketpair"
+  c_socketpair' :: CInt -> CInt -> CInt -> Ptr CInt -> IO CInt
+
+c_socketpair fa t p fdArr = liftIO $ c_socketpair' fa t p fdArr
+#endif
+
+socketPort :: Socket            -- Connected & Bound Socket
+           -> Fiber PortNumber     -- Port Number of Socket
+socketPort sock@(MkSocket _ AF_INET _ _ _) = do
+    (SockAddrInet port _) <- getSocketName sock
+    return port
+#if defined(IPV6_SOCKET_SUPPORT)
+socketPort sock@(MkSocket _ AF_INET6 _ _ _) = do
+    (SockAddrInet6 port _ _ _) <- getSocketName sock
+    return port
+#endif
+socketPort (MkSocket _ family _ _ _) =
+    liftIO $ ioError $ userError $
+      "Network.Socket.socketPort: address family '" ++ show family ++
+      "' not supported."
+
+getPeerName   :: Socket -> Fiber SockAddr
+getPeerName (MkSocket s family _ _ _) =
+  error $ "Network.Socket.getPeerName: Not implemented yet."
+
+getSocketName :: Socket -> Fiber SockAddr
+getSocketName (MkSocket s family _ _ _) =
+  error $ "Network.Socket.getSocketName: Not implemented yet."
+
 bind :: Socket    -- Unconnected Socket
            -> SockAddr  -- Address to Bind to
            -> Fiber ()
@@ -323,6 +413,74 @@ bind (MkSocket s _family _stype _protocol socketStatus) addr = do
        _status <- c_bind s saddr
        return (Bound addr)
 
+#if defined(HAVE_STRUCT_UCRED) || defined(HAVE_GETPEEREID)
+-- | Returns the processID, userID and groupID of the socket's peer.
+--
+-- Only available on platforms that support SO_PEERCRED or GETPEEREID(3)
+-- on domain sockets.
+-- GETPEEREID(3) returns userID and groupID. processID is always 0.
+getPeerCred :: Socket -> Fiber (CUInt, CUInt, CUInt)
+getPeerCred sock = do
+#ifdef HAVE_STRUCT_UCRED
+  let fd = fdSocket sock
+  let sz = (#const sizeof(struct ucred))
+  liftIO $ allocaBytes sz $ \ ptr_cr ->
+   with (fromIntegral sz) $ \ ptr_sz -> fiber $ do
+     _ <- ($) throwSocketErrorIfMinus1Retry "Network.Socket.getPeerCred" $
+       c_getsockopt fd (#const SOL_SOCKET) (#const SO_PEERCRED) ptr_cr ptr_sz
+     pid <- liftIO $ (#peek struct ucred, pid) ptr_cr
+     uid <- liftIO $ (#peek struct ucred, uid) ptr_cr
+     gid <- liftIO $ (#peek struct ucred, gid) ptr_cr
+     return (pid, uid, gid)
+#else
+  (uid,gid) <- getPeerEid sock
+  return (0,uid,gid)
+#endif
+
+#ifdef HAVE_GETPEEREID
+-- | The getpeereid() function returns the effective user and group IDs of the
+-- peer connected to a UNIX-domain socket
+getPeerEid :: Socket -> Fiber (CUInt, CUInt)
+getPeerEid sock = do
+  let fd = fdSocket sock
+  liftIO $ alloca $ \ ptr_uid ->
+    alloca $ \ ptr_gid -> fiber $ do
+      throwSocketErrorIfMinus1Retry_ "Network.Socket.getPeerEid" $
+        c_getpeereid fd ptr_uid ptr_gid
+      uid <- liftIO $ peek ptr_uid
+      gid <- liftIO $ peek ptr_gid
+      return (uid, gid)
+#endif
+#endif
+
+#if defined(DOMAIN_SOCKET_SUPPORT)
+-- sending/receiving ancillary socket data; low-level mechanism
+-- for transmitting file descriptors, mainly.
+sendFd :: Socket -> CInt -> Fiber ()
+sendFd sock outfd = do
+  _ <- ($) throwSocketErrorWaitWrite sock "Network.Socket.sendFd" $
+     c_sendFd (fdSocket sock) outfd
+   -- Note: If Winsock supported FD-passing, thi would have been
+   -- incorrect (since socket FDs need to be closed via closesocket().)
+  closeFd outfd
+
+-- | Receive a file descriptor over a domain socket. Note that the resulting
+-- file descriptor may have to be put into non-blocking mode in order to be
+-- used safely. See 'setNonBlockIfNeeded'.
+recvFd :: Socket -> Fiber CInt
+recvFd sock = do
+  theFd <- throwSocketErrorWaitRead sock "Network.Socket.recvFd" $
+               c_recvFd (fdSocket sock)
+  return theFd
+
+foreign import ccall safe "sendFd" c_sendFd' :: CInt -> CInt -> IO CInt
+foreign import ccall safe "recvFd" c_recvFd' :: CInt -> IO CInt
+
+c_sendFd s fd = liftIO $ c_sendFd' s fd
+c_recvFd s = liftIO $ c_recvFd' s
+
+#endif
+
 defaultHints :: AddrInfo
 defaultHints = AddrInfo {
                          addrFlags = [],
@@ -333,6 +491,43 @@ defaultHints = AddrInfo {
                          addrCanonName = undefined
                         }
 
+
+aNY_PORT :: PortNumber
+aNY_PORT = 0
+
+-- | The IPv4 wild card address.
+
+iNADDR_ANY :: HostAddress
+iNADDR_ANY = 0
+
+-- | Converts the from host byte order to network byte order.
+-- foreign import CALLCONV unsafe "htonl" htonl :: Word32 -> Word32
+-- -- | Converts the from network byte order to host byte order.
+-- foreign import CALLCONV unsafe "ntohl" ntohl :: Word32 -> Word32
+
+#if defined(IPV6_SOCKET_SUPPORT)
+-- | The IPv6 wild card address.
+
+iN6ADDR_ANY :: HostAddress6
+iN6ADDR_ANY = (0, 0, 0, 0)
+#endif
+
+sOMAXCONN :: Int
+sOMAXCONN = 50
+
+sOL_SOCKET :: Int
+sOL_SOCKET = 0
+
+#ifdef SCM_RIGHTS
+sCM_RIGHTS :: Int
+sCM_RIGHTS = #const SCM_RIGHTS
+#endif
+
+-- | This is the value of SOMAXCONN, typically 128.
+-- 128 is good enough for normal network servers but
+-- is too small for high performance servers.
+maxListenQueue :: Int
+maxListenQueue = sOMAXCONN
 -- Below are functions in Data.Streaming
 
 defaultSocketOptions :: SocketType -> [(NS.SocketOption, Int)]
@@ -396,3 +591,24 @@ bindPortGenEx sockOpts sockettype p s = do
           )
     liftIO $ tryAddrs addrs'
 
+#if !defined(mingw32_HOST_OS)
+
+readRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> CSize -> Fiber Int
+readRawBufferPtr loc !fd !buf !off !len = unsafe_read
+  where
+    do_read call = fromIntegral `fmap`
+                      throwErrnoIfMinus1RetryMayBlock loc call
+                            (threadWaitRead (fdChannel fd))
+    unsafe_read  = do_read (c_read (fdChannel fd) (buf `plusPtr` off) len)
+
+writeRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> CSize -> Fiber CInt
+writeRawBufferPtr loc !fd !buf !off !len = unsafe_write
+  where
+    do_write call = fromIntegral `fmap`
+                      throwErrnoIfMinus1RetryMayBlock loc call
+                        (threadWaitWrite (fdChannel fd))
+    unsafe_write  = do_write (c_write (fdChannel fd) (buf `plusPtr` off) len)
+
+#else
+  {- Implement for windows -}
+#endif
