@@ -349,33 +349,6 @@ socket family stype protocol = do
 #endif
     return sock
 
-#if defined(DOMAIN_SOCKET_SUPPORT)
-socketPair :: Family              -- Family Name (usually AF_INET or AF_INET6)
-           -> SocketType          -- Socket Type (usually Stream)
-           -> ProtocolNumber      -- Protocol Number
-           -> IO (Socket, Socket) -- unnamed and connected.
-socketPair family stype protocol = do
-    liftIO $ allocaBytes (2 * sizeOf (1 :: CInt)) $ \ fdArr -> fiber $ do
-    c_stype <- packSocketTypeOrThrow "socketPair" stype
-    _rc <- throwSocketErrorIfMinus1Retry "Network.Socket.socketpair" $
-                c_socketpair (packFamily family) c_stype protocol fdArr
-    [fd1,fd2] <- liftIO $ peekArray 2 fdArr
-    s1 <- mkNonBlockingSocket fd1
-    s2 <- mkNonBlockingSocket fd2
-    return (s1,s2)
-  where
-    mkNonBlockingSocket fd = do
-       setNonBlock fd
-       stat <- newMVar Connected
-       withSocketsDo $ return ()
-       return (MkSocket fd family stype protocol stat)
-
-foreign import ccall unsafe "socketpair"
-  c_socketpair' :: CInt -> CInt -> CInt -> Ptr CInt -> IO CInt
-
-c_socketpair fa t p fdArr = liftIO $ c_socketpair' fa t p fdArr
-#endif
-
 socketPort :: Socket            -- Connected & Bound Socket
            -> Fiber PortNumber     -- Port Number of Socket
 socketPort sock@(MkSocket _ AF_INET _ _ _) = do
@@ -451,34 +424,6 @@ getPeerEid sock = do
       gid <- liftIO $ peek ptr_gid
       return (uid, gid)
 #endif
-#endif
-
-#if defined(DOMAIN_SOCKET_SUPPORT)
--- sending/receiving ancillary socket data; low-level mechanism
--- for transmitting file descriptors, mainly.
-sendFd :: Socket -> CInt -> Fiber ()
-sendFd sock outfd = do
-  _ <- ($) throwSocketErrorWaitWrite sock "Network.Socket.sendFd" $
-     c_sendFd (fdSocket sock) outfd
-   -- Note: If Winsock supported FD-passing, thi would have been
-   -- incorrect (since socket FDs need to be closed via closesocket().)
-  closeFd outfd
-
--- | Receive a file descriptor over a domain socket. Note that the resulting
--- file descriptor may have to be put into non-blocking mode in order to be
--- used safely. See 'setNonBlockIfNeeded'.
-recvFd :: Socket -> Fiber CInt
-recvFd sock = do
-  theFd <- throwSocketErrorWaitRead sock "Network.Socket.recvFd" $
-               c_recvFd (fdSocket sock)
-  return theFd
-
-foreign import ccall safe "sendFd" c_sendFd' :: CInt -> CInt -> IO CInt
-foreign import ccall safe "recvFd" c_recvFd' :: CInt -> IO CInt
-
-c_sendFd s fd = liftIO $ c_sendFd' s fd
-c_recvFd s = liftIO $ c_recvFd' s
-
 #endif
 
 defaultHints :: AddrInfo
