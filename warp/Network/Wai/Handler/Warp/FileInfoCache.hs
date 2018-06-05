@@ -10,7 +10,7 @@ module Network.Wai.Handler.Warp.FileInfoCache (
 import Control.Exception as E
 import Control.Reaper
 import Network.HTTP.Date
-import System.PosixCompat.Files
+-- import System.PosixCompat.Files
 
 import Network.Wai.Handler.Warp.HashMap (HashMap)
 import qualified Network.Wai.Handler.Warp.HashMap as M

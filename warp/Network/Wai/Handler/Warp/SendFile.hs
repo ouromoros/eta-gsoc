@@ -12,19 +12,19 @@ module Network.Wai.Handler.Warp.SendFile (
 import qualified Data.ByteString as BS
 import Network.Socket (Socket)
 
-#ifdef WINDOWS
+-- #ifdef WINDOWS
 import Foreign.ForeignPtr (newForeignPtr_)
 import Foreign.Ptr (plusPtr)
 import qualified System.IO as IO
-#else
-import Control.Exception
-import Foreign.C.Error (throwErrno)
-import Foreign.C.Types
-import Foreign.Ptr (Ptr, castPtr, plusPtr)
-import Network.Sendfile
-import Network.Wai.Handler.Warp.FdCache (openFile, closeFile)
-import System.Posix.Types
-#endif
+-- #else
+-- import Control.Exception
+-- import Foreign.C.Error (throwErrno)
+-- import Foreign.C.Types
+-- import Foreign.Ptr (Ptr, castPtr, plusPtr)
+-- import Network.Sendfile
+-- import Network.Wai.Handler.Warp.FdCache (openFile, closeFile)
+-- import System.Posix.Types
+-- #endif
 
 import Network.Wai.Handler.Warp.Buffer
 import Network.Wai.Handler.Warp.Imports
@@ -38,17 +38,17 @@ import Network.Wai.Handler.Warp.Types
 --
 -- Since: 3.1.0
 sendFile :: Socket -> Buffer -> BufSize -> (ByteString -> IO ()) -> SendFile
-#ifdef SENDFILEFD
-sendFile s _ _ _ fid off len act hdr = case mfid of
-    -- settingsFdCacheDuration is 0
-    Nothing -> sendfileWithHeader   s path (PartOfFile off len) act hdr
-    Just fd -> sendfileFdWithHeader s fd   (PartOfFile off len) act hdr
-  where
-    mfid = fileIdFd fid
-    path = fileIdPath fid
-#else
+-- #ifdef SENDFILEFD
+-- sendFile s _ _ _ fid off len act hdr = case mfid of
+--     -- settingsFdCacheDuration is 0
+--     Nothing -> sendfileWithHeader   s path (PartOfFile off len) act hdr
+--     Just fd -> sendfileFdWithHeader s fd   (PartOfFile off len) act hdr
+--   where
+--     mfid = fileIdFd fid
+--     path = fileIdPath fid
+-- #else
 sendFile _ = readSendFile
-#endif
+-- #endif
 
 ----------------------------------------------------------------
 
@@ -83,7 +83,7 @@ mini i n
 --   For Windows, this is emulated by 'Handle'.
 --
 -- Since: 3.1.0
-#ifdef WINDOWS
+-- #ifdef WINDOWS
 readSendFile :: Buffer -> BufSize -> (ByteString -> IO ()) -> SendFile
 readSendFile buf siz send fid off0 len0 hook headers = do
     hn <- packHeader buf siz send hook headers 0
@@ -109,41 +109,41 @@ readSendFile buf siz send fid off0 len0 hook headers = do
             send bs
             hook
             loop h fptr (len - n')
-#else
-readSendFile :: Buffer -> BufSize -> (ByteString -> IO ()) -> SendFile
-readSendFile buf siz send fid off0 len0 hook headers =
-  bracket setup teardown $ \fd -> do
-    hn <- packHeader buf siz send hook headers 0
-    let room = siz - hn
-        buf' = buf `plusPtr` hn
-    n <- positionRead fd buf' (mini room len0) off0
-    bufferIO buf (hn + n) send
-    hook
-    let n' = fromIntegral n
-    loop fd (len0 - n') (off0 + n')
-  where
-    path = fileIdPath fid
-    setup = case fileIdFd fid of
-       Just fd -> return fd
-       Nothing -> openFile path
-    teardown fd = case fileIdFd fid of
-       Just _  -> return ()
-       Nothing -> closeFile fd
-    loop fd len off
-      | len <= 0  = return ()
-      | otherwise = do
-          n <- positionRead fd buf (mini siz len) off
-          bufferIO buf n send
-          let n' = fromIntegral n
-          hook
-          loop fd (len - n') (off + n')
+-- #else
+-- readSendFile :: Buffer -> BufSize -> (ByteString -> IO ()) -> SendFile
+-- readSendFile buf siz send fid off0 len0 hook headers =
+--   bracket setup teardown $ \fd -> do
+--     hn <- packHeader buf siz send hook headers 0
+--     let room = siz - hn
+--         buf' = buf `plusPtr` hn
+--     n <- positionRead fd buf' (mini room len0) off0
+--     bufferIO buf (hn + n) send
+--     hook
+--     let n' = fromIntegral n
+--     loop fd (len0 - n') (off0 + n')
+--   where
+--     path = fileIdPath fid
+--     setup = case fileIdFd fid of
+--        Just fd -> return fd
+--        Nothing -> openFile path
+--     teardown fd = case fileIdFd fid of
+--        Just _  -> return ()
+--        Nothing -> closeFile fd
+--     loop fd len off
+--       | len <= 0  = return ()
+--       | otherwise = do
+--           n <- positionRead fd buf (mini siz len) off
+--           bufferIO buf n send
+--           let n' = fromIntegral n
+--           hook
+--           loop fd (len - n') (off + n')
 
-positionRead :: Fd -> Buffer -> BufSize -> Integer -> IO Int
-positionRead fd buf siz off = do
-    bytes <- fromIntegral <$> c_pread fd (castPtr buf) (fromIntegral siz) (fromIntegral off)
-    when (bytes < 0) $ throwErrno "positionRead"
-    return bytes
+-- positionRead :: Fd -> Buffer -> BufSize -> Integer -> IO Int
+-- positionRead fd buf siz off = do
+--     bytes <- fromIntegral <$> c_pread fd (castPtr buf) (fromIntegral siz) (fromIntegral off)
+--     when (bytes < 0) $ throwErrno "positionRead"
+--     return bytes
 
-foreign import ccall unsafe "pread"
-  c_pread :: Fd -> Ptr CChar -> ByteCount -> FileOffset -> IO CSsize
-#endif
+-- foreign import ccall unsafe "pread"
+--   c_pread :: Fd -> Ptr CChar -> ByteCount -> FileOffset -> IO CSsize
+-- #endif
