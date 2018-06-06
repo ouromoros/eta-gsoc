@@ -56,9 +56,9 @@ ifModifiedSince reqtbl = getHeaderValue tokenIfModifiedSince reqtbl >>= parseHTT
 ifUnmodifiedSince :: ValueTable -> Maybe HTTPDate
 ifUnmodifiedSince reqtbl = getHeaderValue tokenIfUnmodifiedSince reqtbl >>= parseHTTPDate
 
-{-# INLINE ifRange #-}
-ifRange :: ValueTable -> Maybe HTTPDate
-ifRange reqtbl = getHeaderValue tokenIfRange reqtbl >>= parseHTTPDate
+{-# INLINE ifrange' #-}
+ifrange' :: ValueTable -> Maybe HTTPDate
+ifrange' reqtbl = getHeaderValue tokenIfRange reqtbl >>= parseHTTPDate
 
 ----------------------------------------------------------------
 
@@ -81,7 +81,7 @@ ifunmodified reqtbl size mtime = do
 {-# INLINE ifrange #-}
 ifrange :: ValueTable -> Integer -> HTTPDate -> Maybe RspFileInfo
 ifrange reqtbl size mtime = do
-    date <- ifRange reqtbl
+    date <- ifrange' reqtbl
     rng  <- getHeaderValue tokenRange reqtbl
     return $ if date == mtime
              then parseRange rng size

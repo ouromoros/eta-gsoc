@@ -58,8 +58,8 @@ ifModifiedSince reqidx = reqidx ! fromEnum ReqIfModifiedSince >>= parseHTTPDate
 ifUnmodifiedSince :: IndexedHeader -> Maybe HTTPDate
 ifUnmodifiedSince reqidx = reqidx ! fromEnum ReqIfUnmodifiedSince >>= parseHTTPDate
 
-ifRange :: IndexedHeader -> Maybe HTTPDate
-ifRange reqidx = reqidx ! fromEnum ReqIfRange >>= parseHTTPDate
+ifrange' :: IndexedHeader -> Maybe HTTPDate
+ifrange' reqidx = reqidx ! fromEnum ReqIfRange >>= parseHTTPDate
 
 ----------------------------------------------------------------
 
@@ -79,7 +79,7 @@ ifunmodified reqidx size mtime = do
 
 ifrange :: IndexedHeader -> Integer -> HTTPDate -> Maybe RspFileInfo
 ifrange reqidx size mtime = do
-    date <- ifRange reqidx
+    date <- ifrange' reqidx
     rng  <- reqidx ! fromEnum ReqRange
     return $ if date == mtime
              then parseRange rng size
