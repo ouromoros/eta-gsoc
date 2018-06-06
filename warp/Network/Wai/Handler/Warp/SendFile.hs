@@ -4,9 +4,9 @@ module Network.Wai.Handler.Warp.SendFile (
     sendFile
   , readSendFile
   , packHeader -- for testing
-#ifndef WINDOWS
-  , positionRead
-#endif
+-- #ifndef WINDOWS
+--   , positionRead
+-- #endif
   ) where
 
 import qualified Data.ByteString as BS

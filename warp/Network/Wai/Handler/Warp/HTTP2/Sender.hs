@@ -17,13 +17,13 @@ import Network.HTTP2
 import Network.HTTP2.Priority (isEmptySTM, dequeueSTM, Precedence)
 import Network.Wai
 
-#ifdef WINDOWS
+-- #ifdef WINDOWS
 import qualified System.IO as IO
-#else
-import Network.Wai.Handler.Warp.FdCache
-import Network.Wai.Handler.Warp.SendFile (positionRead)
-import qualified Network.Wai.Handler.Warp.Timeout as T
-#endif
+-- #else
+-- import Network.Wai.Handler.Warp.FdCache
+-- import Network.Wai.Handler.Warp.SendFile (positionRead)
+-- import qualified Network.Wai.Handler.Warp.Timeout as T
+-- #endif
 
 import Network.Wai.Handler.Warp.Buffer
 import Network.Wai.Handler.Warp.HTTP2.EncodeFrame
@@ -338,7 +338,7 @@ fillBuilderBodyGetNext Connection{connWriteBuffer,connBufferSize}
     return $ nextForBuilder len signal
 
 fillFileBodyGetNext :: Connection -> InternalInfo -> Int -> WindowSize -> FilePath -> Maybe FilePart -> IO Next
-#ifdef WINDOWS
+-- #ifdef WINDOWS
 fillFileBodyGetNext Connection{connWriteBuffer,connBufferSize}
                         _ off lim path mpart = do
     let datBuf = connWriteBuffer `plusPtr` off
@@ -351,24 +351,24 @@ fillFileBodyGetNext Connection{connWriteBuffer,connBufferSize}
     let bytes' = bytes - fromIntegral len
     -- fixme: connWriteBuffer connBufferSize
     return $ nextForFile len hdl bytes' (return ())
-#else
-fillFileBodyGetNext Connection{connWriteBuffer,connBufferSize}
-                        ii off lim path mpart = do
-    (mfd, refresh') <- getFd ii path
-    (fd, refresh) <- case mfd of
-        Nothing -> do
-            fd' <- openFile path
-            th <- T.register (timeoutManager ii) (closeFile fd')
-            return (fd', T.tickle th)
-        Just fd  -> return (fd, refresh')
-    let datBuf = connWriteBuffer `plusPtr` off
-        room = min (connBufferSize - off) lim
-    (start, bytes) <- fileStartEnd path mpart
-    len <- positionRead fd datBuf (mini room bytes) start
-    refresh
-    let len' = fromIntegral len
-    return $ nextForFile len fd (start + len') (bytes - len') refresh
-#endif
+-- #else
+-- fillFileBodyGetNext Connection{connWriteBuffer,connBufferSize}
+--                         ii off lim path mpart = do
+--     (mfd, refresh') <- getFd ii path
+--     (fd, refresh) <- case mfd of
+--         Nothing -> do
+--             fd' <- openFile path
+--             th <- T.register (timeoutManager ii) (closeFile fd')
+--             return (fd', T.tickle th)
+--         Just fd  -> return (fd, refresh')
+--     let datBuf = connWriteBuffer `plusPtr` off
+--         room = min (connBufferSize - off) lim
+--     (start, bytes) <- fileStartEnd path mpart
+--     len <- positionRead fd datBuf (mini room bytes) start
+--     refresh
+--     let len' = fromIntegral len
+--     return $ nextForFile len fd (start + len') (bytes - len') refresh
+-- #endif
 
 fileStartEnd :: FilePath -> Maybe FilePart -> IO (Integer, Integer)
 fileStartEnd _ (Just part) =
@@ -480,7 +480,7 @@ nextForStream sq strm leftOrZero True len =
 
 ----------------------------------------------------------------
 
-#ifdef WINDOWS
+-- #ifdef WINDOWS
 fillBufFile :: IO.Handle -> Integer -> IO () -> DynaNext
 fillBufFile h bytes refresh buf siz lim = do
     let payloadBuf = buf `plusPtr` frameHeaderLength
@@ -495,22 +495,22 @@ nextForFile 0   _ _     _       = Next 0   Nothing
 nextForFile len _ 0     _       = Next len Nothing
 nextForFile len h bytes refresh =
     Next len $ Just (fillBufFile h bytes refresh)
-#else
-fillBufFile :: Fd -> Integer -> Integer -> IO () -> DynaNext
-fillBufFile fd start bytes refresh buf siz lim = do
-    let payloadBuf = buf `plusPtr` frameHeaderLength
-        room = min (siz - frameHeaderLength) lim
-    len <- positionRead fd payloadBuf (mini room bytes) start
-    let len' = fromIntegral len
-    refresh
-    return $ nextForFile len fd (start + len') (bytes - len') refresh
+-- #else
+-- fillBufFile :: Fd -> Integer -> Integer -> IO () -> DynaNext
+-- fillBufFile fd start bytes refresh buf siz lim = do
+--     let payloadBuf = buf `plusPtr` frameHeaderLength
+--         room = min (siz - frameHeaderLength) lim
+--     len <- positionRead fd payloadBuf (mini room bytes) start
+--     let len' = fromIntegral len
+--     refresh
+--     return $ nextForFile len fd (start + len') (bytes - len') refresh
 
-nextForFile :: BytesFilled -> Fd -> Integer -> Integer -> IO () -> Next
-nextForFile 0   _  _     _     _       = Next 0   Nothing
-nextForFile len _  _     0     _       = Next len Nothing
-nextForFile len fd start bytes refresh =
-    Next len $ Just (fillBufFile fd start bytes refresh)
-#endif
+-- nextForFile :: BytesFilled -> Fd -> Integer -> Integer -> IO () -> Next
+-- nextForFile 0   _  _     _     _       = Next 0   Nothing
+-- nextForFile len _  _     0     _       = Next len Nothing
+-- nextForFile len fd start bytes refresh =
+--     Next len $ Just (fillBufFile fd start bytes refresh)
+-- #endif
 
 {-# INLINE mini #-}
 mini :: Int -> Integer -> Int

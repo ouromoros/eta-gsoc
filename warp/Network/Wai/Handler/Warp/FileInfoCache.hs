@@ -36,23 +36,24 @@ type FileInfoCache = Reaper Cache (Int,FilePath,Entry)
 
 -- | Getting the file information corresponding to the file.
 getInfo :: FilePath -> IO FileInfo
-getInfo path = do
-    fs <- getFileStatus path -- file access
-    let regular = not (isDirectory fs)
-        readable = fileMode fs `intersectFileModes` ownerReadMode /= 0
-    if regular && readable then do
-        let time = epochTimeToHTTPDate $ modificationTime fs
-            date = formatHTTPDate time
-            size = fromIntegral $ fileSize fs
-            info = FileInfo {
-                fileInfoName = path
-              , fileInfoSize = size
-              , fileInfoTime = time
-              , fileInfoDate = date
-              }
-        return info
-      else
-        throwIO (userError "FileInfoCache:getInfo")
+getInfo = undefined
+-- getInfo path = do
+--     fs <- getFileStatus path -- file access
+--     let regular = not (isDirectory fs)
+--         readable = fileMode fs `intersectFileModes` ownerReadMode /= 0
+--     if regular && readable then do
+--         let time = epochTimeToHTTPDate $ modificationTime fs
+--             date = formatHTTPDate time
+--             size = fromIntegral $ fileSize fs
+--             info = FileInfo {
+--                 fileInfoName = path
+--               , fileInfoSize = size
+--               , fileInfoTime = time
+--               , fileInfoDate = date
+--               }
+--         return info
+--       else
+--         throwIO (userError "FileInfoCache:getInfo")
 
 getInfoNaive :: Hash -> FilePath -> IO FileInfo
 getInfoNaive _ = getInfo

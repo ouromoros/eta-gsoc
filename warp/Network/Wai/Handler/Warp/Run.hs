@@ -528,11 +528,11 @@ wrappedRecvN th istatus slowlorisSize readN bufsize = do
 --
 -- @since 3.2.17
 setSocketCloseOnExec :: Socket -> IO ()
-#if WINDOWS
+-- #if WINDOWS
 setSocketCloseOnExec _ = return ()
-#else
-setSocketCloseOnExec socket = F.setFileCloseOnExec $ fromIntegral $ fdSocket socket
-#endif
+-- #else
+-- setSocketCloseOnExec socket = F.setFileCloseOnExec $ fromIntegral $ fdSocket socket
+-- #endif
 
 gracefulShutdown :: Settings -> Counter -> IO ()
 gracefulShutdown set counter =

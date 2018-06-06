@@ -7,9 +7,9 @@ module Network.Wai.Handler.Warp.FdCache (
   , Fd
   , Refresh
 -- #ifndef WINDOWS
-  , openFile
-  , closeFile
-  , setFileCloseOnExec
+  -- , openFile
+  -- , closeFile
+  -- , setFileCloseOnExec
 -- #endif
   ) where
 
