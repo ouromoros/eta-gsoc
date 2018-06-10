@@ -483,7 +483,7 @@ defaultSocketOptions sockettype =
 
 bindPortTCP :: Int -> HostPreference -> Fiber Socket
 bindPortTCP p s = do
-    sock <- bindPortGen Stream p s
+    sock <- bindPortGen (ServerSocket Stream) p s
     listen sock (max 2048 NS.maxListenQueue)
     return sock
 
