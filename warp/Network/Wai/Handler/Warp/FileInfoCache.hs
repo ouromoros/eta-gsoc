@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, CPP, DoAndIfThenElse #-}
+{-# LANGUAGE RecordWildCards, CPP, DoAndIfThenElse, ForeignFunctionInterface #-}
 
 module Network.Wai.Handler.Warp.FileInfoCache (
     FileInfo(..)
