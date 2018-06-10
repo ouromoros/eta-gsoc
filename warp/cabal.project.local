@@ -12,6 +12,7 @@ per-component: True
 one-shot: False
 keep-going: False
 offline: False
+tests: True
 docs-keep-temp-files: False
 docs-hoogle: False
 docs-html: False

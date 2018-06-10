@@ -119,11 +119,11 @@ runSettingsSocket set socket app = do
     runSettingsConnection set getConn app
   where
     getConn = do
-#if WINDOWS
-        (s, sa) <- windowsThreadBlockHack $ accept socket
-#else
+-- #if WINDOWS
+--         (s, sa) <- windowsThreadBlockHack $ accept socket
+-- #else
         (s, sa) <- accept socket
-#endif
+-- #endif
         setSocketCloseOnExec s
         -- NoDelay causes an error for AF_UNIX.
         setSocketOption s NoDelay 1 `E.catch` \(E.SomeException _) -> return ()
