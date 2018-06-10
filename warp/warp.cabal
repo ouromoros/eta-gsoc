@@ -33,7 +33,7 @@ Flag warp-debug
     Default:     False
 
 Library
-  Build-Depends:     base                      >= 4.8        && < 5
+  Build-Depends:     base                      >= 4.8        && < 4.9
                    , array
                    , async
                    , auto-update               >= 0.1.3    && < 0.2
@@ -55,7 +55,10 @@ Library
                    , word8
                    , hashable
                    , http-date
-                   , fibers-network
+                --    , fibers-network
+  if impl(eta >= 0.0.9.7)
+     build-depends:    eta-java-interop
+     cpp-options:      -DINTEROP
   if impl(ghc < 8)
       Build-Depends: semigroups
   if flag(network-bytestring)
@@ -105,13 +108,13 @@ Library
 
   if flag(warp-debug)
       Cpp-Options:   -DWARP_DEBUG
-  if (os(linux) || os(freebsd) || os(darwin)) && flag(allow-sendfilefd)
-      Cpp-Options:   -DSENDFILEFD
-  if os(windows)
-      Cpp-Options:   -DWINDOWS
-      Build-Depends: time
-  else
-      Other-modules: Network.Wai.Handler.Warp.MultiMap
+--   if (os(linux) || os(freebsd) || os(darwin)) && flag(allow-sendfilefd)
+--       Cpp-Options:   -DSENDFILEFD
+--   if os(windows)
+--       Cpp-Options:   -DWINDOWS
+--       Build-Depends: time
+--   else
+--       Other-modules: Network.Wai.Handler.Warp.MultiMap
 
 Test-Suite doctest
   Type:                 exitcode-stdio-1.0
@@ -214,10 +217,10 @@ Test-Suite spec
   if impl(ghc < 8)
       Build-Depends: semigroups
 
-  if (os(linux) || os(freebsd) || os(darwin)) && flag(allow-sendfilefd)
-    Cpp-Options:   -DSENDFILEFD
-  if os(windows)
-      Cpp-Options:   -DWINDOWS
+--   if (os(linux) || os(freebsd) || os(darwin)) && flag(allow-sendfilefd)
+--     Cpp-Options:   -DSENDFILEFD
+--   if os(windows)
+--       Cpp-Options:   -DWINDOWS
 
 Benchmark parser
     Type:           exitcode-stdio-1.0
@@ -243,10 +246,10 @@ Benchmark parser
   if impl(ghc < 8)
       Build-Depends: semigroups
 
-  if (os(linux) || os(freebsd) || os(darwin)) && flag(allow-sendfilefd)
-    Cpp-Options:   -DSENDFILEFD
-  if os(windows)
-      Cpp-Options:   -DWINDOWS
+--   if (os(linux) || os(freebsd) || os(darwin)) && flag(allow-sendfilefd)
+--     Cpp-Options:   -DSENDFILEFD
+--   if os(windows)
+--       Cpp-Options:   -DWINDOWS
 
 Source-Repository head
   Type:     git

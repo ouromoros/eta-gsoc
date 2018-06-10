@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, CPP #-}
+{-# LANGUAGE RecordWildCards, CPP, DoAndIfThenElse #-}
 
 module Network.Wai.Handler.Warp.FileInfoCache (
     FileInfo(..)
@@ -15,6 +15,12 @@ import Network.HTTP.Date
 import Network.Wai.Handler.Warp.HashMap (HashMap)
 import qualified Network.Wai.Handler.Warp.HashMap as M
 import Network.Wai.Handler.Warp.Imports
+#ifdef INTEROP
+import qualified Interop.Java.IO as JIO
+#else
+import qualified Java.IO as JIO
+#endif
+import Java
 
 ----------------------------------------------------------------
 
@@ -34,26 +40,30 @@ type FileInfoCache = Reaper Cache (Int,FilePath,Entry)
 
 ----------------------------------------------------------------
 
+foreign import java unsafe "@new" newFile :: String -> Java a JIO.File
+-- newFile = undefined
+
+
 -- | Getting the file information corresponding to the file.
 getInfo :: FilePath -> IO FileInfo
-getInfo = undefined
--- getInfo path = do
---     fs <- getFileStatus path -- file access
---     let regular = not (isDirectory fs)
---         readable = fileMode fs `intersectFileModes` ownerReadMode /= 0
---     if regular && readable then do
---         let time = epochTimeToHTTPDate $ modificationTime fs
---             date = formatHTTPDate time
---             size = fromIntegral $ fileSize fs
---             info = FileInfo {
---                 fileInfoName = path
---               , fileInfoSize = size
---               , fileInfoTime = time
---               , fileInfoDate = date
---               }
---         return info
---       else
---         throwIO (userError "FileInfoCache:getInfo")
+getInfo path =  java $ do
+  file <- newFile path
+  withObject file $ do 
+    regular <- fmap not JIO.isDirectory
+    readable <- JIO.canRead
+    if (regular && readable) then do
+      lastMod <- JIO.lastModified
+      let epoch = fromIntegral $ lastMod `div` 1000
+          time  = epochTimeToHTTPDate epoch
+      size <- fmap fromIntegral $ JIO.length
+      let date = formatHTTPDate time
+      return $ FileInfo { fileInfoName = path
+                        , fileInfoSize = size
+                        , fileInfoTime = time
+                        , fileInfoDate = date }
+    else do
+      absolutePath <- file <.> JIO.getAbsolutePath
+      io $ throwIO (userError $ "File:getInfo: " ++ absolutePath)
 
 getInfoNaive :: Hash -> FilePath -> IO FileInfo
 getInfoNaive _ = getInfo
