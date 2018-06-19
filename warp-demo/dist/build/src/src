@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -z "$ETA_JAVA_CMD" ]; then
+    if [ -n "$JAVA_HOME" ] ; then
+        if [ -x "$JAVA_HOME/jre/sh/java" ] ; then
+            ETA_JAVA_CMD="$JAVA_HOME/jre/sh/java"
+        else
+            ETA_JAVA_CMD="$JAVA_HOME/bin/java"
+        fi
+    else
+        ETA_JAVA_CMD="java"
+    fi
+fi
+$ETA_JAVA_CMD $JAVA_ARGS $JAVA_OPTS $ETA_JAVA_ARGS -classpath "$DIR/src.jar:/home/chaos/.etlas/lib/x86_64-linux-eta-0.7.0.2-ghc7_10_3/base-4.8.2.0-IPFDtZjmEfh5tPXF10v5hF/HSbase-4.8.2.0-IPFDtZjmEfh5tPXF10v5hF.jar:/home/chaos/.etlas/lib/x86_64-linux-eta-0.7.0.2-ghc7_10_3/ghc-prim-0.4.0.0-Jhi6UgHuZdoBZWUpVo3WKE/HSghc-prim-0.4.0.0-Jhi6UgHuZdoBZWUpVo3WKE.jar:/home/chaos/.etlas/lib/x86_64-linux-eta-0.7.0.2-ghc7_10_3/integer-0.5.1.0-ACyqTmAMUMGGvisLFeQbAm/HSinteger-0.5.1.0-ACyqTmAMUMGGvisLFeQbAm.jar:/home/chaos/.etlas/lib/x86_64-linux-eta-0.7.0.2-ghc7_10_3/rts-0.1.0.0-5Dj4qf1Wx9cCeYbpni5T1w/HSrts-0.1.0.0-5Dj4qf1Wx9cCeYbpni5T1w.jar:$ETA_CLASSPATH" eta.main "$@"
