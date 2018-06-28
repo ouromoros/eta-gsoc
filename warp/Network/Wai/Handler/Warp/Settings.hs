@@ -35,7 +35,7 @@ import Network.Wai.Handler.Warp.Types
 data Settings = Settings
     { settingsPort :: Port -- ^ Port to listen on. Default value: 3000
     , settingsHost :: HostPreference -- ^ Default value: HostIPv4
-    , settingsOnException :: Maybe Request -> SomeException -> IO () -- ^ What to do with exceptions thrown by either the application or server. Default: ignore server-generated exceptions (see 'InvalidRequest') and print application-generated applications to stderr.
+    , settingsOnException :: Maybe Request -> SomeException -> Fiber () -- ^ What to do with exceptions thrown by either the application or server. Default: ignore server-generated exceptions (see 'InvalidRequest') and print application-generated applications to stderr.
     , settingsOnExceptionResponse :: SomeException -> Response
       -- ^ A function to create `Response` when an exception occurs.
       --
@@ -57,7 +57,7 @@ data Settings = Settings
       --
       -- Since 1.3.6
 
-    , settingsFork :: ((forall a. Fiber a -> Fiber a) -> Fiber ()) -> IO ()
+    , settingsFork :: ((forall a. Fiber a -> Fiber a) -> Fiber ()) -> Fiber ()
       -- ^ Code to fork a new thread to accept a connection.
       --
       -- This may be useful if you need OS bound threads, or if
@@ -75,7 +75,7 @@ data Settings = Settings
       -- Default: False
       --
       -- Since 2.0.3
-    , settingsInstallShutdownHandler :: Fiber () -> Fiber ()
+    , settingsInstallShutdownHandler :: Fiber () -> IO ()
     , settingsServerName :: ByteString
       -- ^ Default server name if application does not set one.
       --
@@ -96,11 +96,11 @@ data Settings = Settings
       -- ^ Whether to enable HTTP2 ALPN/upgrades. Default: True
       --
       -- Since 3.1.7.
-    , settingsLogger :: Request -> H.Status -> Maybe Integer -> IO ()
+    , settingsLogger :: Request -> H.Status -> Maybe Integer -> Fiber ()
       -- ^ A log function. Default: no action.
       --
       -- Since 3.X.X.
-    , settingsServerPushLogger :: Request -> ByteString -> Integer -> IO ()
+    , settingsServerPushLogger :: Request -> ByteString -> Integer -> Fiber ()
       -- ^ A HTTP/2 server push log function. Default: no action.
       --
       -- Since 3.X.X.

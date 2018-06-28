@@ -65,7 +65,7 @@ data FileId = FileId {
 -- |  fileid, offset, length, hook action, HTTP headers
 --
 -- Since: 3.1.0
-type SendFile = FileId -> Integer -> Integer -> IO () -> [ByteString] -> IO ()
+type SendFile = FileId -> Integer -> Integer -> IO () -> [ByteString] -> Fiber ()
 
 -- | Type for read buffer pool
 type BufferPool = IORef ByteString
@@ -77,28 +77,28 @@ type Buffer = Ptr Word8
 type BufSize = Int
 
 -- | Type for the action to receive input data
-type Recv = IO ByteString
+type Recv = Fiber ByteString
 
 -- | Type for the action to receive input data with a buffer.
 --   The result boolean indicates whether or not the buffer is fully filled.
-type RecvBuf = Buffer -> BufSize -> IO Bool
+type RecvBuf = Buffer -> BufSize -> Fiber Bool
 
 -- | Data type to manipulate IO actions for connections.
 --   This is used to abstract IO actions for plain HTTP and HTTP over TLS.
 data Connection = Connection {
     -- | This is not used at this moment.
-      connSendMany    :: [ByteString] -> IO ()
+      connSendMany    :: [ByteString] -> Fiber ()
     -- | The sending function.
-    , connSendAll     :: ByteString -> IO ()
+    , connSendAll     :: ByteString -> Fiber ()
     -- | The sending function for files in HTTP/1.1.
     , connSendFile    :: SendFile
     -- | The connection closing function. Warp guarantees it will only be
     -- called once. Other functions (like 'connRecv') may be called after
     -- 'connClose' is called.
-    , connClose       :: IO ()
+    , connClose       :: Fiber ()
     -- | Free any buffers allocated. Warp guarantees it will only be
     -- called once, and no other functions will be called after it.
-    , connFree        :: IO ()
+    , connFree        :: Fiber ()
     -- | The connection receiving function. This returns "" for EOF.
     , connRecv        :: Recv
     -- | The connection receiving function. This tries to fill the buffer.

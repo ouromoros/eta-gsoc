@@ -25,3 +25,4 @@ import Data.Monoid
 import Data.Ord
 import Data.Word
 import Numeric
+import Control.Concurrent.Fiber

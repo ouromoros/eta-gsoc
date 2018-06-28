@@ -47,11 +47,11 @@ import qualified Network.Wai.Handler.Warp.Timeout as T
 import Network.Wai.Handler.Warp.Types
 
 
-#if WINDOWS
-import Network.Wai.Handler.Warp.Windows
-#else
-import Network.Socket (fdSocket)
-#endif
+-- #if WINDOWS
+-- import Network.Wai.Handler.Warp.Windows
+-- #else
+-- import Network.Socket (fdSocket)
+-- #endif
 
 -- | Creating 'Connection' for plain HTTP based on a given socket.
 socketConnection :: Socket -> Fiber Connection
@@ -101,9 +101,9 @@ runSettings set app = withSocketsDo $
     bracket
         (fiber $ bindPortTCP (settingsPort set) (settingsHost set))
         close
-        (\socket -> do
+        (fiber (\socket -> do
             setSocketCloseOnExec socket
-            runSettingsSocket set socket app)
+            runSettingsSocket set socket app))
 
 -- | This installs a shutdown handler for the given socket and
 -- calls 'runSettingsConnection' with the default connection setup action
@@ -144,7 +144,7 @@ runSettingsSocket set socket app = do
 -- in a separate worker thread instead of the main server loop.
 --
 -- Since 1.3.5
-runSettingsConnection :: Settings -> Fiber (Connection, SockAddr) -> Application -> Fiber ()
+runSettingsConnection :: Settings -> Fiber (Connection, SockAddr) -> Application -> IO ()
 runSettingsConnection set getConn app = runSettingsConnectionMaker set getConnMaker app
   where
     getConnMaker = do
@@ -153,7 +153,7 @@ runSettingsConnection set getConn app = runSettingsConnectionMaker set getConnMa
 
 -- | This modifies the connection maker so that it returns 'TCP' for 'Transport'
 -- (i.e. plain HTTP) then calls 'runSettingsConnectionMakerSecure'.
-runSettingsConnectionMaker :: Settings -> Fiber (Fiber Connection, SockAddr) -> Application -> Fiber ()
+runSettingsConnectionMaker :: Settings -> Fiber (Fiber Connection, SockAddr) -> Application -> IO ()
 runSettingsConnectionMaker x y =
     runSettingsConnectionMakerSecure x (toTCP <$> y)
   where
@@ -167,11 +167,11 @@ runSettingsConnectionMaker x y =
 -- or HTTP over TLS.
 --
 -- Since 2.1.4
-runSettingsConnectionMakerSecure :: Settings -> Fiber (Fiber (Connection, Transport), SockAddr) -> Application -> Fiber ()
-runSettingsConnectionMakerSecure set getConnMaker app = do
+runSettingsConnectionMakerSecure :: Settings -> Fiber (Fiber (Connection, Transport), SockAddr) -> Application -> IO ()
+runSettingsConnectionMakerSecure set getConnMaker app = fiber $ do
     settingsBeforeMainLoop set
-    counter <- newCounter
-    withII0 $ acceptConnection set getConnMaker app counter
+    counter <- liftIO newCounter
+    withII0 (fiber . (acceptConnection set getConnMaker app counter))
   where
     withII0 action =
         withTimeoutManager $ \tm ->
@@ -205,21 +205,24 @@ runSettingsConnectionMakerSecure set getConnMaker app = do
 --
 -- Our approach is explained in the comments below.
 acceptConnection :: Settings
-                 -> IO (IO (Connection, Transport), SockAddr)
+                 -> Fiber (Fiber (Connection, Transport), SockAddr)
                  -> Application
                  -> Counter
                  -> InternalInfo0
-                 -> IO ()
+                 -> Fiber ()
 acceptConnection set getConnMaker app counter ii0 = do
     -- First mask all exceptions in acceptLoop. This is necessary to
     -- ensure that no async exception is throw between the call to
     -- acceptNewConnection and the registering of connClose.
-    void $ mask_ acceptLoop
+    
+    -- No exception handling for now
+    -- void $ mask_ acceptLoop
+    void $ acceptLoop
     gracefulShutdown set counter
   where
     acceptLoop = do
         -- Allow async exceptions before receiving the next connection maker.
-        allowInterrupt
+        -- allowInterrupt
 
         -- acceptNewConnection will try to receive the next incoming
         -- request. It returns a /connection maker/, not a connection,
@@ -236,7 +239,7 @@ acceptConnection set getConnMaker app counter ii0 = do
                 acceptLoop
 
     acceptNewConnection = do
-        ex <- try getConnMaker
+        ex <- liftIO $ try (fiber getConnMaker)
         case ex of
             Right x -> return $ Just x
             Left e -> do
@@ -251,19 +254,19 @@ acceptConnection set getConnMaker app counter ii0 = do
 -- Fork a new worker thread for this connection maker, and ask for a
 -- function to unmask (i.e., allow async exceptions to be thrown).
 fork :: Settings
-     -> IO (Connection, Transport)
+     -> Fiber (Connection, Transport)
      -> SockAddr
      -> Application
      -> Counter
      -> InternalInfo0
-     -> IO ()
+     -> Fiber ()
 fork set mkConn addr app counter ii0 = settingsFork set $ \unmask ->
     -- Call the user-supplied on exception code if any
     -- exceptions are thrown.
     handle (settingsOnException set Nothing) .
     -- Allocate a new IORef indicating whether the connection has been
     -- closed, to avoid double-freeing a connection
-    withClosedRef $ \ref ->
+    liftIO $ withClosedRef $ \ref ->
         -- Run the connection maker to get a new connection, and ensure
         -- that the connection is closed. If the mkConn call throws an
         -- exception, we will leak the connection. If the mkConn call is
@@ -280,7 +283,7 @@ fork set mkConn addr app counter ii0 = settingsFork set $ \unmask ->
 
     closeConn ref conn = do
         isClosed <- atomicModifyIORef' ref $ \x -> (True, x)
-        unless isClosed $ connClose conn
+        unless isClosed (fiber $ connClose conn)
 
     cleanUp ref (conn, _) = closeConn ref conn `finally` connFree conn
 
@@ -296,17 +299,19 @@ fork set mkConn addr app counter ii0 = settingsFork set $ \unmask ->
         unmask .
             -- Call the user-supplied code for connection open and
             -- close events
-           bracket (onOpen addr) (onClose addr) $ \goingon ->
+           bracket (fiber $ onOpen addr) (fiber $ onClose addr) $ \goingon ->
            -- Actually serve this connection.  bracket with closeConn
            -- above ensures the connection is closed.
-           when goingon $ serveConnection conn ii1 addr transport set app
+           when goingon $ fiber $ serveConnection conn ii1 addr transport set app
       where
         register = T.registerKillThread (timeoutManager0 ii0)
                                         (closeConn ref conn)
         cancel   = T.cancel
 
-    onOpen adr    = increase counter >> settingsOnOpen  set adr
-    onClose adr _ = decrease counter >> settingsOnClose set adr
+    onOpen adr    = (liftIO $ increase counter) >> settingsOnOpen  set adr
+    onClose adr _ = (liftIO $ decrease counter) >> settingsOnClose set adr
+
+ -- TODO: finish rest
 
 serveConnection :: Connection
                 -> InternalInfo1
