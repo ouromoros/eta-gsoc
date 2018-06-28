@@ -11,16 +11,19 @@ module Network.Wai.Handler.Warp.Run where
 
 import "iproute" Data.IP (toHostAddress, toHostAddress6)
 import Control.Arrow (first)
-import qualified Control.Concurrent as Conc (yield)
+-- import qualified Control.Concurrent as Conc (yield)
+import qualified Control.Concurrent.Fiber as Conc (yield)
 import Control.Exception as E
 import qualified Data.ByteString as S
 import Data.Char (chr)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef, atomicModifyIORef')
-import Data.Streaming.Network (bindPortTCP)
+-- import Data.Streaming.Network (bindPortTCP)
+import Control.Concurrent.Fiber.Network (bindPortTCP)
 import Foreign.C.Error (Errno(..), eCONNABORTED)
 import GHC.IO.Exception (IOException(..))
-import Network.Socket (Socket, close, accept, withSocketsDo, SockAddr(SockAddrInet, SockAddrInet6), setSocketOption, SocketOption(..))
-import qualified Network.Socket.ByteString as Sock
+-- import Network.Socket (Socket, close, accept, withSocketsDo, SockAddr(SockAddrInet, SockAddrInet6), setSocketOption, SocketOption(..))
+import Control.Concurrent.Fiber.Network.Socket (Socket, close, accept, withSocketsDo, SockAddr(SockAddrInet, SockAddrInet6), setSocketOption, SocketOption(..))
+import qualified Control.Concurrent.Fiber.Network as Sock
 import Network.Wai
 import Network.Wai.Internal (ResponseReceived (ResponseReceived))
 import System.Environment (getEnvironment)
@@ -51,9 +54,9 @@ import Network.Socket (fdSocket)
 #endif
 
 -- | Creating 'Connection' for plain HTTP based on a given socket.
-socketConnection :: Socket -> IO Connection
-socketConnection s = do
-    bufferPool <- newBufferPool
+socketConnection :: Socket -> Fiber Connection
+socketConnection s = liftIO $ do
+    bufferPool <- $ newBufferPool
     writeBuf <- allocateBuffer bufferSize
     let sendall = Sock.sendAll s
     return Connection {
@@ -96,7 +99,7 @@ runEnv p app = do
 runSettings :: Settings -> Application -> IO ()
 runSettings set app = withSocketsDo $
     bracket
-        (bindPortTCP (settingsPort set) (settingsHost set))
+        (fiber $ bindPortTCP (settingsPort set) (settingsHost set))
         close
         (\socket -> do
             setSocketCloseOnExec socket
@@ -126,7 +129,7 @@ runSettingsSocket set socket app = do
 -- #endif
         setSocketCloseOnExec s
         -- NoDelay causes an error for AF_UNIX.
-        setSocketOption s NoDelay 1 `E.catch` \(E.SomeException _) -> return ()
+        -- setSocketOption s NoDelay 1 `E.catch` \(E.SomeException _) -> return ()
         conn <- socketConnection s
         return (conn, sa)
 
@@ -141,7 +144,7 @@ runSettingsSocket set socket app = do
 -- in a separate worker thread instead of the main server loop.
 --
 -- Since 1.3.5
-runSettingsConnection :: Settings -> IO (Connection, SockAddr) -> Application -> IO ()
+runSettingsConnection :: Settings -> Fiber (Connection, SockAddr) -> Application -> Fiber ()
 runSettingsConnection set getConn app = runSettingsConnectionMaker set getConnMaker app
   where
     getConnMaker = do
@@ -150,7 +153,7 @@ runSettingsConnection set getConn app = runSettingsConnectionMaker set getConnMa
 
 -- | This modifies the connection maker so that it returns 'TCP' for 'Transport'
 -- (i.e. plain HTTP) then calls 'runSettingsConnectionMakerSecure'.
-runSettingsConnectionMaker :: Settings -> IO (IO Connection, SockAddr) -> Application -> IO ()
+runSettingsConnectionMaker :: Settings -> Fiber (Fiber Connection, SockAddr) -> Application -> Fiber ()
 runSettingsConnectionMaker x y =
     runSettingsConnectionMakerSecure x (toTCP <$> y)
   where
@@ -164,7 +167,7 @@ runSettingsConnectionMaker x y =
 -- or HTTP over TLS.
 --
 -- Since 2.1.4
-runSettingsConnectionMakerSecure :: Settings -> IO (IO (Connection, Transport), SockAddr) -> Application -> IO ()
+runSettingsConnectionMakerSecure :: Settings -> Fiber (Fiber (Connection, Transport), SockAddr) -> Application -> Fiber ()
 runSettingsConnectionMakerSecure set getConnMaker app = do
     settingsBeforeMainLoop set
     counter <- newCounter

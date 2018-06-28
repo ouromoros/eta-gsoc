@@ -10,7 +10,8 @@ module Network.Wai.Handler.Warp.SendFile (
   ) where
 
 import qualified Data.ByteString as BS
-import Network.Socket (Socket)
+-- import Network.Socket (Socket)
+import Control.Concurrent.Fiber.Network (Socket)
 
 -- #ifdef WINDOWS
 import Foreign.ForeignPtr (newForeignPtr_)
