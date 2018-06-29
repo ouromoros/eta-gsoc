@@ -21,20 +21,20 @@ import Foreign.C.Types (CTime(..))
 type GMTDate = ByteString
 
 -- | Creating 'DateCache' and executing the action.
-withDateCache :: (IO GMTDate -> IO a) -> IO a
+withDateCache :: (Fiber GMTDate -> Fiber a) -> Fiber a
 withDateCache action = initialize >>= action
 
-initialize :: IO (IO GMTDate)
-initialize = mkAutoUpdate defaultUpdateSettings {
+initialize :: Fiber (Fiber GMTDate)
+initialize = liftIO $ liftIO <$> (mkAutoUpdate defaultUpdateSettings {
                             updateAction = formatHTTPDate <$> getCurrentHTTPDate
-                          }
+                          })
 
 -- #ifdef WINDOWS
 uToH :: UTCTime -> HTTPDate
 uToH = epochTimeToHTTPDate . CTime . truncate . utcTimeToPOSIXSeconds
 
-getCurrentHTTPDate :: IO HTTPDate
-getCurrentHTTPDate =  uToH <$> getCurrentTime
+getCurrentHTTPDate :: Fiber HTTPDate
+getCurrentHTTPDate =  liftIO $ uToH <$> getCurrentTime
 -- #else
 -- getCurrentHTTPDate :: IO HTTPDate
 -- getCurrentHTTPDate = epochTimeToHTTPDate <$> epochTime

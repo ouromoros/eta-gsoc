@@ -15,16 +15,16 @@ import Network.Wai.Handler.Warp.Imports
 
 newtype Counter = Counter (TVar Int)
 
-newCounter :: IO Counter
-newCounter = Counter <$> newTVarIO 0
+newCounter :: Fiber Counter
+newCounter = liftIO $ Counter <$> newTVarIO 0
 
-waitForZero :: Counter -> IO ()
-waitForZero (Counter ref) = atomically $ do
+waitForZero :: Counter -> Fiber ()
+waitForZero (Counter ref) = liftIO $ atomically $ do
     x <- readTVar ref
     unless (x == 0) retry
 
-increase :: Counter -> IO ()
-increase (Counter ref) = atomically $ modifyTVar' ref $ \x -> x + 1
+increase :: Counter -> Fiber ()
+increase (Counter ref) = liftIO $ atomically $ modifyTVar' ref $ \x -> x + 1
 
-decrease :: Counter -> IO ()
-decrease (Counter ref) = atomically $ modifyTVar' ref $ \x -> x - 1
+decrease :: Counter -> Fiber ()
+decrease (Counter ref) = liftIO $ atomically $ modifyTVar' ref $ \x -> x - 1
