@@ -65,7 +65,7 @@ data FileId = FileId {
 -- |  fileid, offset, length, hook action, HTTP headers
 --
 -- Since: 3.1.0
-type SendFile = FileId -> Integer -> Integer -> IO () -> [ByteString] -> Fiber ()
+type SendFile = FileId -> Integer -> Integer -> Fiber () -> [ByteString] -> Fiber ()
 
 -- | Type for read buffer pool
 type BufferPool = IORef ByteString
@@ -151,31 +151,31 @@ toInternalInfo (InternalInfo1 a b c d e) h = InternalInfo a b c (d h) (e h)
 ----------------------------------------------------------------
 
 -- | Type for input streaming.
-data Source = Source !(IORef ByteString) !(IO ByteString)
+data Source = Source !(IORef ByteString) !(Fiber ByteString)
 
-mkSource :: IO ByteString -> IO Source
+mkSource :: Fiber ByteString -> Fiber Source
 mkSource func = do
-    ref <- newIORef S.empty
+    ref <- liftIO $ newIORef S.empty
     return $! Source ref func
 
-readSource :: Source -> IO ByteString
+readSource :: Source -> Fiber ByteString
 readSource (Source ref func) = do
-    bs <- readIORef ref
+    bs <- liftIO $ readIORef ref
     if S.null bs
         then func
         else do
-            writeIORef ref S.empty
+            liftIO $ writeIORef ref S.empty
             return bs
 
 -- | Read from a Source, ignoring any leftovers.
-readSource' :: Source -> IO ByteString
+readSource' :: Source -> Fiber ByteString
 readSource' (Source _ func) = func
 
-leftoverSource :: Source -> ByteString -> IO ()
-leftoverSource (Source ref _) bs = writeIORef ref bs
+leftoverSource :: Source -> ByteString -> Fiber ()
+leftoverSource (Source ref _) bs = liftIO $ writeIORef ref bs
 
-readLeftoverSource :: Source -> IO ByteString
-readLeftoverSource (Source ref _) = readIORef ref
+readLeftoverSource :: Source -> Fiber ByteString
+readLeftoverSource (Source ref _) = liftIO $ readIORef ref
 
 ----------------------------------------------------------------
 

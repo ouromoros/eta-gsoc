@@ -311,15 +311,15 @@ fork set mkConn addr app counter ii0 = settingsFork set $ \unmask ->
     onOpen adr    = (liftIO $ increase counter) >> settingsOnOpen  set adr
     onClose adr _ = (liftIO $ decrease counter) >> settingsOnClose set adr
 
- -- TODO: finish rest
 
+-- TODO: finish this fun
 serveConnection :: Connection
                 -> InternalInfo1
                 -> SockAddr
                 -> Transport
                 -> Settings
                 -> Application
-                -> IO ()
+                -> Fiber ()
 serveConnection conn ii1 origAddr transport settings app = do
     -- fixme: Upgrading to HTTP/2 should be supported.
     (h2,bs) <- if isHTTP2 transport then
@@ -330,7 +330,7 @@ serveConnection conn ii1 origAddr transport settings app = do
                        return (True, bs0)
                      else
                        return (False, bs0)
-    istatus <- newIORef False
+    istatus <- liftIO $ newIORef False
     if settingsHTTP2Enabled settings && h2 then do
         rawRecvN <- makeReceiveN bs (connRecv conn) (connRecvBuf conn)
         let recvN = wrappedRecvN th istatus (settingsSlowlorisSize settings) rawRecvN
@@ -338,7 +338,7 @@ serveConnection conn ii1 origAddr transport settings app = do
         http2 conn ii1 origAddr transport settings recvN app
       else do
         src <- mkSource (wrappedRecv conn th istatus (settingsSlowlorisSize settings))
-        writeIORef istatus True
+        liftIO $ writeIORef istatus True
         leftoverSource src bs
         addr <- getProxyProtocolAddr src
         http1 True addr istatus src `E.catch` \e ->
@@ -348,7 +348,7 @@ serveConnection conn ii1 origAddr transport settings app = do
             Just NoKeepAliveRequest -> return ()
             Nothing -> do
               sendErrorResponse addr istatus e
-              throwIO e
+              liftIO $ throwIO e
   where
     getProxyProtocolAddr src =
         case settingsProxyProtocol settings of
@@ -486,7 +486,7 @@ serveConnection conn ii1 origAddr transport settings app = do
                                 return False
                         Nothing -> tryKeepAlive
 
-flushEntireBody :: IO ByteString -> IO ()
+flushEntireBody :: Fiber ByteString -> Fiber ()
 flushEntireBody src =
     loop
   where
@@ -494,9 +494,9 @@ flushEntireBody src =
         bs <- src
         unless (S.null bs) loop
 
-flushBody :: IO ByteString -- ^ get next chunk
+flushBody :: Fiber ByteString -- ^ get next chunk
           -> Int -- ^ maximum to flush
-          -> IO Bool -- ^ True == flushed the entire body, False == we didn't
+          -> Fiber Bool -- ^ True == flushed the entire body, False == we didn't
 flushBody src =
     loop
   where
@@ -509,25 +509,25 @@ flushBody src =
                 | toRead' >= 0 -> loop toRead'
                 | otherwise -> return False
 
-wrappedRecv :: Connection -> T.Handle -> IORef Bool -> Int -> IO ByteString
+wrappedRecv :: Connection -> T.Handle -> IORef Bool -> Int -> Fiber ByteString
 wrappedRecv Connection { connRecv = recv } th istatus slowlorisSize = do
     bs <- recv
     unless (S.null bs) $ do
-        writeIORef istatus True
-        when (S.length bs >= slowlorisSize) $ T.tickle th
+        liftIO $ writeIORef istatus True
+        when (S.length bs >= slowlorisSize) (liftIO $ T.tickle th)
     return bs
 
-wrappedRecvN :: T.Handle -> IORef Bool -> Int -> (BufSize -> IO ByteString) -> (BufSize -> IO ByteString)
+wrappedRecvN :: T.Handle -> IORef Bool -> Int -> (BufSize -> Fiber ByteString) -> (BufSize -> Fiber ByteString)
 wrappedRecvN th istatus slowlorisSize readN bufsize = do
     bs <- readN bufsize
     unless (S.null bs) $ do
-        writeIORef istatus True
+        liftIO $ writeIORef istatus True
     -- TODO: think about the slowloris protection in HTTP2: current code
     -- might open a slow-loris attack vector. Rather than timing we should
     -- consider limiting the per-client connections assuming that in HTTP2
     -- we should allow only few connections per host (real-world
     -- deployments with large NATs may be trickier).
-        when (S.length bs >= slowlorisSize || bufsize <= slowlorisSize) $ T.tickle th
+        when (S.length bs >= slowlorisSize || bufsize <= slowlorisSize) (liftIO $ T.tickle th)
     return bs
 
 -- | Set flag FileCloseOnExec flag on a socket (on Unix)
@@ -535,14 +535,14 @@ wrappedRecvN th istatus slowlorisSize readN bufsize = do
 -- Copied from: https://github.com/mzero/plush/blob/master/src/Plush/Server/Warp.hs
 --
 -- @since 3.2.17
-setSocketCloseOnExec :: Socket -> IO ()
+setSocketCloseOnExec :: Socket -> Fiber ()
 -- #if WINDOWS
 setSocketCloseOnExec _ = return ()
 -- #else
 -- setSocketCloseOnExec socket = F.setFileCloseOnExec $ fromIntegral $ fdSocket socket
 -- #endif
 
-gracefulShutdown :: Settings -> Counter -> IO ()
+gracefulShutdown :: Settings -> Counter -> Fiber ()
 gracefulShutdown set counter =
     case settingsGracefulShutdownTimeout set of
         Nothing ->
