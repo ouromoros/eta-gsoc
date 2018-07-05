@@ -22,7 +22,7 @@ import Control.Concurrent.Fiber.Network (bindPortTCP)
 import Foreign.C.Error (Errno(..), eCONNABORTED)
 import GHC.IO.Exception (IOException(..))
 -- import Network.Socket (Socket, close, accept, withSocketsDo, SockAddr(SockAddrInet, SockAddrInet6), setSocketOption, SocketOption(..))
-import Control.Concurrent.Fiber.Network.Socket (Socket, close, accept, withSocketsDo, SockAddr(SockAddrInet, SockAddrInet6), setSocketOption, SocketOption(..))
+import Control.Concurrent.Fiber.Network (Socket, close, accept, withSocketsDo, SockAddr(SockAddrInet, SockAddrInet6), setSocketOption, SocketOption(..))
 import qualified Control.Concurrent.Fiber.Network as Sock
 import Network.Wai
 import Network.Wai.Internal (ResponseReceived (ResponseReceived))

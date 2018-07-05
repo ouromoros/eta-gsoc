@@ -4,7 +4,7 @@
 module Network.Wai.Handler.Warp.HTTP2 (isHTTP2, http2) where
 
 -- import Control.Concurrent (forkIO, killThread)
-import Control.Concurrent.Fibers
+import Control.Concurrent.Fiber
 import qualified Control.Exception as E
 -- import Network.HTTP2
 -- import Network.Socket (SockAddr)

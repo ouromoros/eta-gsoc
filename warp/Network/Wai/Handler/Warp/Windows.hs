@@ -1,7 +1,7 @@
 {-# LANGUAGE CPP #-}
-module Network.Wai.Handler.Warp.Windows
-  ( windowsThreadBlockHack
-  ) where
+module Network.Wai.Handler.Warp.Windows where
+  -- ( windowsThreadBlockHack
+  -- ) where
 
 -- #if WINDOWS
 -- import Control.Exception

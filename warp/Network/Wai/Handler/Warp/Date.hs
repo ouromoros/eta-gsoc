@@ -16,6 +16,8 @@ import Foreign.C.Types (CTime(..))
 -- #else
 -- import System.Posix (epochTime)
 -- #endif
+import Control.Concurrent.Fiber
+import Network.Wai.Handler.Warp.Fiber
 
 -- | The type of the Date header value.
 type GMTDate = ByteString
@@ -26,7 +28,7 @@ withDateCache action = initialize >>= action
 
 initialize :: Fiber (Fiber GMTDate)
 initialize = liftIO $ liftIO <$> (mkAutoUpdate defaultUpdateSettings {
-                            updateAction = formatHTTPDate <$> getCurrentHTTPDate
+                            updateAction = fiber $ formatHTTPDate <$> getCurrentHTTPDate
                           })
 
 -- #ifdef WINDOWS

@@ -57,7 +57,7 @@ data Settings = Settings
       --
       -- Since 1.3.6
 
-    , settingsFork :: ((forall a. Fiber a -> Fiber a) -> Fiber ()) -> Fiber ()
+    , settingsFork :: ((forall a. Fiber a -> Fiber a) -> Fiber ()) -> IO ()
       -- ^ Code to fork a new thread to accept a connection.
       --
       -- This may be useful if you need OS bound threads, or if
@@ -134,7 +134,7 @@ defaultSettings = Settings
     , settingsFdCacheDuration = 0
     , settingsFileInfoCacheDuration = 0
     , settingsBeforeMainLoop = return ()
-    , settingsFork = void . forkFiber
+    , settingsFork = (void . forkFiber .)
     , settingsNoParsePath = False
     , settingsInstallShutdownHandler = const $ return ()
     , settingsServerName = C8.pack $ "Warp/" ++ showVersion Paths_warp.version

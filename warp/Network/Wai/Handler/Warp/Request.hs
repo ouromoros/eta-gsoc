@@ -12,7 +12,7 @@ module Network.Wai.Handler.Warp.Request (
   , NoKeepAliveRequest (..)
   ) where
 
-import qualified Control.Concurrent.Fibers as Conc (yield)
+import qualified Control.Concurrent.Fiber as Conc (yield)
 import Control.Exception (throwIO, Exception)
 import Data.Array ((!))
 import qualified Data.ByteString as S
@@ -23,7 +23,7 @@ import Data.Typeable (Typeable)
 import qualified Data.Vault.Lazy as Vault
 import qualified Network.HTTP.Types as H
 -- import Network.Socket (SockAddr)
-import Control.Concurrent.Fibers.Network (SockAddr)
+import Control.Concurrent.Fiber.Network (SockAddr)
 import Network.Wai
 import qualified Network.Wai.Handler.Warp.Timeout as Timeout
 import Network.Wai.Handler.Warp.Types

@@ -21,6 +21,7 @@ module Network.Wai.Handler.Warp.FdCache (
 -- import System.Posix.IO (openFd, OpenFileFlags(..), defaultFileFlags, OpenMode(ReadOnly), closeFd, FdOption(CloseOnExec), setFdOption)
 -- #endif
 import System.Posix.Types (Fd)
+import Control.Concurrent.Fiber
 
 ----------------------------------------------------------------
 

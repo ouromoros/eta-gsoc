@@ -55,7 +55,8 @@ Library
                    , word8
                    , hashable
                    , http-date
-                --    , fibers-network
+                   , fibers-network
+                   , eta-fibers-dev
   if impl(eta >= 0.0.9.7)
      build-depends:    eta-java-interop
      cpp-options:      -DINTEROP
@@ -103,6 +104,7 @@ Library
                      Network.Wai.Handler.Warp.Types
                      Network.Wai.Handler.Warp.Windows
                      Network.Wai.Handler.Warp.WithApplication
+                     Network.Wai.Handler.Warp.Fiber
                      Paths_warp
   Ghc-Options:       -Wall
 
