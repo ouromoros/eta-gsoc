@@ -23,14 +23,14 @@ import Network.Wai.Handler.Warp.Types
 ----------------------------------------------------------------
 
 parseHeaderLines :: [ByteString]
-                 -> IO (H.Method
+                 -> Fiber (H.Method
                        ,ByteString  --  Path
                        ,ByteString  --  Path, parsed
                        ,ByteString  --  Query
                        ,H.HttpVersion
                        ,H.RequestHeaders
                        )
-parseHeaderLines [] = throwIO $ NotEnoughLines []
+parseHeaderLines [] = liftIO $ throwIO $ NotEnoughLines []
 parseHeaderLines (firstLine:otherLines) = do
     (method, path', query, httpversion) <- parseRequestLine firstLine
     let path = H.extractPath path'
@@ -52,11 +52,11 @@ parseHeaderLines (firstLine:otherLines) = do
 -- >>> parseRequestLine "PRI * HTTP/2.0"
 -- ("PRI","*","",HTTP/2.0)
 parseRequestLine :: ByteString
-                 -> IO (H.Method
+                 -> Fiber (H.Method
                        ,ByteString -- Path
                        ,ByteString -- Query
                        ,H.HttpVersion)
-parseRequestLine requestLine@(PS fptr off len) = withForeignPtr fptr $ \ptr -> do
+parseRequestLine requestLine@(PS fptr off len) = liftIO $ withForeignPtr fptr $ \ptr -> do
     when (len < 14) $ throwIO baderr
     let methodptr = ptr `plusPtr` off
         limptr = methodptr `plusPtr` len

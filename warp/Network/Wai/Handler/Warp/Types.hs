@@ -117,9 +117,9 @@ type Hash = Int
 
 data InternalInfo0 =
     InternalInfo0 T.Manager
-                  (IO D.GMTDate)
-                  (Hash -> FilePath -> IO (Maybe F.Fd, F.Refresh))
-                  (Hash -> FilePath -> IO I.FileInfo)
+                  (Fiber D.GMTDate)
+                  (Hash -> FilePath -> Fiber (Maybe F.Fd, F.Refresh))
+                  (Hash -> FilePath -> Fiber I.FileInfo)
 
 timeoutManager0 :: InternalInfo0 -> T.Manager
 timeoutManager0 (InternalInfo0 tm _ _ _) = tm
@@ -127,9 +127,9 @@ timeoutManager0 (InternalInfo0 tm _ _ _) = tm
 data InternalInfo1 =
     InternalInfo1 T.Handle
                   T.Manager
-                  (IO D.GMTDate)
-                  (Hash -> FilePath -> IO (Maybe F.Fd, F.Refresh))
-                  (Hash -> FilePath -> IO I.FileInfo)
+                  (Fiber D.GMTDate)
+                  (Hash -> FilePath -> Fiber (Maybe F.Fd, F.Refresh))
+                  (Hash -> FilePath -> Fiber I.FileInfo)
 
 toInternalInfo1 :: InternalInfo0 -> T.Handle -> InternalInfo1
 toInternalInfo1 (InternalInfo0 b c d e) a = InternalInfo1 a b c d e
@@ -140,9 +140,9 @@ threadHandle1 (InternalInfo1 th _ _ _ _) = th
 data InternalInfo = InternalInfo {
     threadHandle   :: T.Handle
   , timeoutManager :: T.Manager
-  , getDate        :: IO D.GMTDate
-  , getFd          :: FilePath -> IO (Maybe F.Fd, F.Refresh)
-  , getFileInfo    :: FilePath -> IO I.FileInfo
+  , getDate        :: Fiber D.GMTDate
+  , getFd          :: FilePath -> Fiber (Maybe F.Fd, F.Refresh)
+  , getFileInfo    :: FilePath -> Fiber I.FileInfo
   }
 
 toInternalInfo :: InternalInfo1 -> Hash -> InternalInfo

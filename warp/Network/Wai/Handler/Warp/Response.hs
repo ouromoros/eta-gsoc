@@ -103,9 +103,9 @@ sendResponse :: Settings
              -> InternalInfo
              -> Request -- ^ HTTP request.
              -> IndexedHeader -- ^ Indexed header of HTTP request.
-             -> IO ByteString -- ^ source from client, for raw response
+             -> Fiber ByteString -- ^ source from client, for raw response
              -> Response -- ^ HTTP response including status code and response header.
-             -> IO Bool -- ^ Returing True if the connection is persistent.
+             -> Fiber Bool -- ^ Returing True if the connection is persistent.
 sendResponse settings conn ii req reqidxhdr src response = do
     hs <- addServerAndDate hs0
     if hasBody s then do
@@ -119,12 +119,12 @@ sendResponse settings conn ii req reqidxhdr src response = do
         case ms of
             Nothing         -> return ()
             Just realStatus -> logger req realStatus mlen
-        T.tickle th
+        liftIO $ T.tickle th
         return ret
       else do
         _ <- sendRsp conn ii ver s hs RspNoBody
         logger req s Nothing
-        T.tickle th
+        liftIO $ T.tickle th
         return isPersist
   where
     defServer = settingsServerName settings
@@ -197,7 +197,7 @@ sendRsp :: Connection
         -> H.Status
         -> H.ResponseHeaders
         -> Rsp
-        -> IO (Maybe H.Status, Maybe Integer)
+        -> Fiber (Maybe H.Status, Maybe Integer)
 
 ----------------------------------------------------------------
 
@@ -294,8 +294,8 @@ sendRspFile2XX :: Connection
                -> Integer
                -> Integer
                -> Bool
-               -> IO ()
-               -> IO (Maybe H.Status, Maybe Integer)
+               -> Fiber ()
+               -> Fiber (Maybe H.Status, Maybe Integer)
 sendRspFile2XX conn ii ver s hs path beg len isHead hook
   | isHead = sendRsp conn ii ver s hs RspNoBody
   | otherwise = do
@@ -310,22 +310,22 @@ sendRspFile404 :: Connection
                -> InternalInfo
                -> H.HttpVersion
                -> H.ResponseHeaders
-               -> IO (Maybe H.Status, Maybe Integer)
+               -> Fiber (Maybe H.Status, Maybe Integer)
 sendRspFile404 conn ii ver hs0 = sendRsp conn ii ver s hs (RspBuilder body True)
   where
     s = H.notFound404
     hs =  replaceHeader H.hContentType "text/plain; charset=utf-8" hs0
-    body = byteString "File not found"
+    body = liftIO $ byteString "File not found"
 
 ----------------------------------------------------------------
 ----------------------------------------------------------------
 
 -- | Use 'connSendAll' to send this data while respecting timeout rules.
-sendFragment :: Connection -> T.Handle -> ByteString -> IO ()
+sendFragment :: Connection -> T.Handle -> ByteString -> Fiber ()
 sendFragment Connection { connSendAll = send } th bs = do
-    T.resume th
+    liftIO $ T.resume th
     send bs
-    T.pause th
+    liftIO $ T.pause th
     -- We pause timeouts before passing control back to user code. This ensures
     -- that a timeout will only ever be executed when Warp is in control. We
     -- also make sure to resume the timeout after the completion of user code
@@ -384,10 +384,10 @@ hasBody s = sc /= 204
 addTransferEncoding :: H.ResponseHeaders -> H.ResponseHeaders
 addTransferEncoding hdrs = (H.hTransferEncoding, "chunked") : hdrs
 
-addDate :: IO D.GMTDate -> IndexedHeader -> H.ResponseHeaders -> IO H.ResponseHeaders
+addDate :: Fiber D.GMTDate -> IndexedHeader -> H.ResponseHeaders -> Fiber H.ResponseHeaders
 addDate getdate rspidxhdr hdrs = case rspidxhdr ! fromEnum ResDate of
     Nothing -> do
-        gmtdate <- getdate
+        gmtdate <- liftIO getdate
         return $ (H.hDate, gmtdate) : hdrs
     Just _ -> return hdrs
 
@@ -417,8 +417,8 @@ replaceHeader k v hdrs = (k,v) : deleteBy ((==) `on` fst) (k,v) hdrs
 
 ----------------------------------------------------------------
 
-composeHeaderBuilder :: H.HttpVersion -> H.Status -> H.ResponseHeaders -> Bool -> IO Builder
+composeHeaderBuilder :: H.HttpVersion -> H.Status -> H.ResponseHeaders -> Bool -> Fiber Builder
 composeHeaderBuilder ver s hs True =
-    byteString <$> composeHeader ver s (addTransferEncoding hs)
+    liftIO $ byteString <$> composeHeader ver s (addTransferEncoding hs)
 composeHeaderBuilder ver s hs False =
-    byteString <$> composeHeader ver s hs
+    liftIO $ byteString <$> composeHeader ver s hs
