@@ -86,7 +86,7 @@ mini i n
 -- Since: 3.1.0
 -- #ifdef WINDOWS
 readSendFile :: Buffer -> BufSize -> (ByteString -> Fiber ()) -> SendFile
-readSendFile buf siz send fid off0 len0 hook headers = liftIO $ do
+readSendFile buf siz send fid off0 len0 hook headers = do
     hn <- packHeader buf siz send hook headers 0
     let room = siz - hn
         buf' = buf `plusPtr` hn

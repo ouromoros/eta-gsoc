@@ -56,7 +56,7 @@ import Network.Wai.Handler.Warp.Types
 -- | Creating 'Connection' for plain HTTP based on a given socket.
 socketConnection :: Socket -> Fiber Connection
 socketConnection s = liftIO $ do
-    bufferPool <- $ newBufferPool
+    bufferPool <- newBufferPool
     writeBuf <- allocateBuffer bufferSize
     let sendall = Sock.sendAll s
     return Connection {
@@ -187,8 +187,8 @@ runSettingsConnectionMakerSecure set getConnMaker app = fiber $ do
     withTimeoutManager f = case settingsManager set of
         Just tm -> f tm
         Nothing -> bracket
-                   (T.initialize timeoutInSeconds)
-                   T.stopManager
+                   (fiber $ T.initialize timeoutInSeconds)
+                   (fiber . T.stopManager)
                    f
 
 -- Note that there is a thorough discussion of the exception safety of the
@@ -527,7 +527,7 @@ wrappedRecvN th istatus slowlorisSize readN bufsize = do
     -- consider limiting the per-client connections assuming that in HTTP2
     -- we should allow only few connections per host (real-world
     -- deployments with large NATs may be trickier).
-        when (S.length bs >= slowlorisSize || bufsize <= slowlorisSize) (liftIO $ T.tickle th)
+        when (S.length bs >= slowlorisSize || bufsize <= slowlorisSize) (T.tickle th)
     return bs
 
 -- | Set flag FileCloseOnExec flag on a socket (on Unix)
@@ -548,5 +548,5 @@ gracefulShutdown set counter =
         Nothing ->
             waitForZero counter
         (Just seconds) ->
-            void (timeout (seconds * microsPerSecond) (waitForZero counter))
+            liftIO $ void (timeout (seconds * microsPerSecond) (fiber $ waitForZero counter))
             where microsPerSecond = 1000000

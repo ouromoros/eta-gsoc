@@ -35,11 +35,11 @@ bufferSize = 16384
 
 -- | Allocating a buffer with malloc().
 allocateBuffer :: Int -> Fiber Buffer
-allocateBuffer = liftIO $ mallocBytes
+allocateBuffer = liftIO . mallocBytes
 
 -- | Releasing a buffer with free().
 freeBuffer :: Buffer -> Fiber ()
-freeBuffer = liftIO $ free
+freeBuffer = liftIO . free
 
 ----------------------------------------------------------------
 
@@ -74,7 +74,7 @@ putBuffer pool buffer = liftIO $ writeIORef pool buffer
 {-# INLINE putBuffer #-}
 
 withForeignBuffer :: ByteString -> ((Buffer, BufSize) -> Fiber Int) -> Fiber Int
-withForeignBuffer (PS ps s l) f = liftIO $ withForeignPtr ps (fiber $ \p -> f (castPtr p `plusPtr` s, l))
+withForeignBuffer (PS ps s l) f = liftIO $ withForeignPtr ps (fiber . \p -> f (castPtr p `plusPtr` s, l))
 {-# INLINE withForeignBuffer #-}
 
 withBufferPool :: BufferPool -> ((Buffer, BufSize) -> Fiber Int) -> Fiber ByteString
@@ -98,8 +98,8 @@ toBuilderBuffer ptr size = do
 -- | Copying the bytestring to the buffer.
 --   This function returns the point where the next copy should start.
 copy :: Buffer -> ByteString -> Fiber Buffer
-copy !ptr (PS fp o l) = withForeignPtr fp $ \p -> do
-    liftIO $ memcpy ptr (p `plusPtr` o) (fromIntegral l)
+copy !ptr (PS fp o l) = liftIO $ withForeignPtr fp $ \p -> do
+    memcpy ptr (p `plusPtr` o) (fromIntegral l)
     return $! ptr `plusPtr` l
 {-# INLINE copy #-}
 

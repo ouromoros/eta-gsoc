@@ -119,12 +119,12 @@ sendResponse settings conn ii req reqidxhdr src response = do
         case ms of
             Nothing         -> return ()
             Just realStatus -> logger req realStatus mlen
-        liftIO $ T.tickle th
+        T.tickle th
         return ret
       else do
         _ <- sendRsp conn ii ver s hs RspNoBody
         logger req s Nothing
-        liftIO $ T.tickle th
+        T.tickle th
         return isPersist
   where
     defServer = settingsServerName settings
@@ -148,7 +148,8 @@ sendResponse settings conn ii req reqidxhdr src response = do
         ResponseStream _ _ fb
           | isHead                  -> RspNoBody
           | otherwise               -> RspStream fb needsChunked th
-        ResponseRaw raw _           -> RspRaw raw src (T.tickle th)
+        ResponseRaw raw _           -> RspRaw raw' src (T.tickle th)
+          where raw' = \x y -> liftIO $ raw (fiber x) (fiber . y)
     -- Make sure we don't hang on to 'response' (avoid space leak)
     !ret = case response of
         ResponseFile    {} -> isPersist
@@ -184,10 +185,10 @@ sanitizeHeaderValue v = case C8.lines $ S.filter (/= _cr) v of
 ----------------------------------------------------------------
 
 data Rsp = RspNoBody
-         | RspFile FilePath (Maybe FilePart) IndexedHeader Bool (IO ())
+         | RspFile FilePath (Maybe FilePart) IndexedHeader Bool (Fiber ())
          | RspBuilder Builder Bool
          | RspStream StreamingBody Bool T.Handle
-         | RspRaw (IO ByteString -> (ByteString -> IO ()) -> IO ()) (IO ByteString) (IO ())
+         | RspRaw (Fiber ByteString -> (ByteString -> Fiber ()) -> Fiber ()) (Fiber ByteString) (Fiber ())
 
 ----------------------------------------------------------------
 
@@ -224,12 +225,12 @@ sendRsp conn _ ver s hs (RspBuilder body needsChunked) = do
 
 sendRsp conn _ ver s hs (RspStream streamingBody needsChunked th) = do
     header <- composeHeaderBuilder ver s hs needsChunked
-    (recv, finish) <- newByteStringBuilderRecv $ reuseBufferStrategy
-                    $ toBuilderBuffer (connWriteBuffer conn) (connBufferSize conn)
+    (recv, finish) <- liftIO $ newByteStringBuilderRecv $ reuseBufferStrategy
+                    $ fiber $ toBuilderBuffer (connWriteBuffer conn) (connBufferSize conn)
     let send builder = do
-            popper <- recv builder
+            popper <- liftIO $ recv builder
             let loop = do
-                    bs <- popper
+                    bs <- liftIO popper
                     unless (S.null bs) $ do
                         sendFragment conn th bs
                         loop
@@ -238,9 +239,9 @@ sendRsp conn _ ver s hs (RspStream streamingBody needsChunked th) = do
             | needsChunked = send . chunkedTransferEncoding
             | otherwise = send
     send header
-    streamingBody sendChunk (sendChunk flush)
+    liftIO $ streamingBody (fiber .sendChunk) (fiber $ sendChunk flush)
     when needsChunked $ send chunkedTransferTerminator
-    mbs <- finish
+    mbs <- liftIO finish
     maybe (return ()) (sendFragment conn th) mbs
     return (Just s, Nothing) -- fixme: can we tell the actual sent bytes?
 
@@ -272,7 +273,7 @@ sendRsp conn ii ver s0 hs0 (RspFile path (Just part) _ isHead hook) =
 -- Simple WAI applications.
 -- Status is ignored
 sendRsp conn ii ver _ hs0 (RspFile path Nothing idxhdr isHead hook) = do
-    efinfo <- E.try $ getFileInfo ii path
+    efinfo <- liftIO $ E.try $ fiber $ getFileInfo ii path
     case efinfo of
         Left (_ex :: E.IOException) ->
 #ifdef WARP_DEBUG
@@ -315,7 +316,7 @@ sendRspFile404 conn ii ver hs0 = sendRsp conn ii ver s hs (RspBuilder body True)
   where
     s = H.notFound404
     hs =  replaceHeader H.hContentType "text/plain; charset=utf-8" hs0
-    body = liftIO $ byteString "File not found"
+    body = byteString "File not found"
 
 ----------------------------------------------------------------
 ----------------------------------------------------------------
@@ -323,9 +324,9 @@ sendRspFile404 conn ii ver hs0 = sendRsp conn ii ver s hs (RspBuilder body True)
 -- | Use 'connSendAll' to send this data while respecting timeout rules.
 sendFragment :: Connection -> T.Handle -> ByteString -> Fiber ()
 sendFragment Connection { connSendAll = send } th bs = do
-    liftIO $ T.resume th
+    T.resume th
     send bs
-    liftIO $ T.pause th
+    T.pause th
     -- We pause timeouts before passing control back to user code. This ensures
     -- that a timeout will only ever be executed when Warp is in control. We
     -- also make sure to resume the timeout after the completion of user code
@@ -387,7 +388,7 @@ addTransferEncoding hdrs = (H.hTransferEncoding, "chunked") : hdrs
 addDate :: Fiber D.GMTDate -> IndexedHeader -> H.ResponseHeaders -> Fiber H.ResponseHeaders
 addDate getdate rspidxhdr hdrs = case rspidxhdr ! fromEnum ResDate of
     Nothing -> do
-        gmtdate <- liftIO getdate
+        gmtdate <- getdate
         return $ (H.hDate, gmtdate) : hdrs
     Just _ -> return hdrs
 
@@ -419,6 +420,6 @@ replaceHeader k v hdrs = (k,v) : deleteBy ((==) `on` fst) (k,v) hdrs
 
 composeHeaderBuilder :: H.HttpVersion -> H.Status -> H.ResponseHeaders -> Bool -> Fiber Builder
 composeHeaderBuilder ver s hs True =
-    liftIO $ byteString <$> composeHeader ver s (addTransferEncoding hs)
+    byteString <$> composeHeader ver s (addTransferEncoding hs)
 composeHeaderBuilder ver s hs False =
-    liftIO $ byteString <$> composeHeader ver s hs
+    byteString <$> composeHeader ver s hs

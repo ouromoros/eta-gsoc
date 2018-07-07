@@ -96,7 +96,7 @@ recvRequest firstRequest settings conn ii1 addr src = do
           , requestHeaders    = hdr
           , isSecure          = False
           , remoteHost        = addr
-          , requestBody       = rbody'
+          , requestBody       = fiber rbody'
           , vault             = vaultValue
           , requestBodyLength = bodyLength
           , requestHeaderHost      = idxhdr ! fromEnum ReqHost
@@ -236,7 +236,7 @@ push src (THStatus len lines prepend) bs'
     bs = prepend bs'
     bsLen = S.length bs
     mnl = do
-        nl <- liftIO $ S.elemIndex 10 bs
+        nl <- S.elemIndex 10 bs
         -- check if there are two more bytes in the bs
         -- if so, see if the second of those is a horizontal space
         if bsLen > nl + 1 then
@@ -264,7 +264,7 @@ push src (THStatus len lines prepend) bs'
     -- Found a newline, but next line continues as a multiline header
     push' (Just (end, True)) = push src status rest
       where
-        rest = liftIO $ S.drop (end + 1) bs
+        rest = S.drop (end + 1) bs
         prepend' = S.append (SU.unsafeTake (checkCR bs end) bs)
         len' = len + end
         status = THStatus len' lines prepend'
@@ -280,12 +280,12 @@ push src (THStatus len lines prepend) bs'
                           status = THStatus len' lines' id
                       in if start < bsLen then
                              -- more bytes in this chunk, push again
-                             let bs'' = liftIO $ SU.unsafeDrop start bs
+                             let bs'' = SU.unsafeDrop start bs
                               in push src status bs''
                            else do
                              -- no more bytes in this chunk, ask for more
                              bst <- readSource' src
-                             when (S.null bs) $ throwIO IncompleteHeaders
+                             liftIO $ when (S.null bs) $ throwIO IncompleteHeaders
                              push src status bst
       where
         start = end + 1 -- start of next chunk

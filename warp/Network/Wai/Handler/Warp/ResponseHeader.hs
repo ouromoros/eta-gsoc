@@ -62,7 +62,7 @@ copyHeader !ptr (k,v) = do
     ptr1 <- copy ptr (CI.original k)
     liftIO $ writeWord8OffPtr ptr1 0 colon
     liftIO $ writeWord8OffPtr ptr1 1 spc
-    ptr2 <- fiber $ copy (ptr1 `plusPtr` 2) v
+    ptr2 <- copy (ptr1 `plusPtr` 2) v
     copyCRLF ptr2
 
 {-# INLINE copyCRLF #-}

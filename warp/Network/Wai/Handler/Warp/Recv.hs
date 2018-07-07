@@ -28,7 +28,6 @@ import Network.Wai.Handler.Warp.Types
 import GHC.IO.FD (FD(..), FDType(..))
 import System.Posix.Types (Channel)
 import Control.Concurrent.Fiber.Network (readRawBufferPtr)
-import Control.Concurrent.Fiber
 -- import Network.Wai.Handler.Warp.Windows
 -- #endif
 
@@ -50,7 +49,7 @@ makePlainReceiveN s bs0 = do
     pool <- newBufferPool
     return $ receiveN ref (receive s pool) (receiveBuf s)
 
-receiveN :: IORef ByteString -> Recv -> RecvBuf -> BufSize -> IO ByteString
+receiveN :: IORef ByteString -> Recv -> RecvBuf -> BufSize -> Fiber ByteString
 receiveN ref recv recvBuf size = liftIO $ E.handle handler $ fiber $ do
     cached <- liftIO $ readIORef ref
     (bs, leftover) <- spell cached size recv recvBuf
@@ -69,7 +68,7 @@ spell init0 siz0 recv recvBuf
   | siz0 <= 4096 = loop [init0] (siz0 - len0)
   | otherwise    = do
       bs@(PS fptr _ _) <- mallocBS siz0
-      withForeignPtr fptr $ \ptr -> do
+      liftIO $ withForeignPtr fptr $ \ptr -> fiber $ do
           ptr' <- copy ptr init0
           full <- recvBuf ptr' (siz0 - len0)
           if full then
