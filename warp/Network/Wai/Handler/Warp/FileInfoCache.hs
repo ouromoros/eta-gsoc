@@ -68,19 +68,19 @@ getInfo' path = java $ do
       absolutePath <- file <.> JIO.getAbsolutePath
       io $ throwIO (userError $ "File:getInfo: " ++ absolutePath)
 
-getInfoNaive :: Hash -> FilePath -> IO FileInfo
-getInfoNaive _ = getInfo'
+getInfoNaive :: Hash -> FilePath -> Fiber FileInfo
+getInfoNaive _ = getInfo
 
 ----------------------------------------------------------------
 
-getAndRegisterInfo :: FileInfoCache -> Hash -> FilePath -> IO FileInfo
+getAndRegisterInfo :: FileInfoCache -> Hash -> FilePath -> Fiber FileInfo
 getAndRegisterInfo reaper@Reaper{..} h path = do
-    cache <- reaperRead
+    cache <- liftIO reaperRead
     case M.lookup h path cache of
-        Just Negative     -> throwIO (userError "FileInfoCache:getAndRegisterInfo")
+        Just Negative     -> liftIO $ throwIO (userError "FileInfoCache:getAndRegisterInfo")
         Just (Positive x) -> return x
-        Nothing           -> positive reaper h path
-                               `E.onException` negative reaper h path
+        Nothing           -> liftIO (positive reaper h path
+                               `E.onException` negative reaper h path)
 
 positive :: FileInfoCache -> Hash -> FilePath -> IO FileInfo
 positive Reaper{..} h path = do
@@ -99,7 +99,7 @@ negative Reaper{..} h path = do
 --   and executing the action in the second argument.
 --   The first argument is a cache duration in second.
 withFileInfoCache :: Int
-                  -> ((Hash -> FilePath -> IO FileInfo) -> Fiber a)
+                  -> ((Hash -> FilePath -> Fiber FileInfo) -> Fiber a)
                   -> Fiber a
 withFileInfoCache 0        action = action getInfoNaive
 withFileInfoCache duration action =

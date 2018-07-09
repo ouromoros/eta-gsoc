@@ -238,7 +238,7 @@ setFileInfoCacheDuration x y = y { settingsFileInfoCacheDuration = x }
 -- Default: do nothing.
 --
 -- Since 2.1.0
-setBeforeMainLoop :: IO () -> Settings -> Settings
+setBeforeMainLoop :: Fiber () -> Settings -> Settings
 setBeforeMainLoop x y = y { settingsBeforeMainLoop = x }
 
 -- | Perform no parsing on the rawPathInfo.
@@ -300,7 +300,7 @@ getGracefulShutdownTimeout = settingsGracefulShutdownTimeout
 -- Default: does not install any code.
 --
 -- Since 3.0.1
-setInstallShutdownHandler :: (Fiber () -> Fiber ()) -> Settings -> Settings
+setInstallShutdownHandler :: (Fiber () -> IO ()) -> Settings -> Settings
 setInstallShutdownHandler x y = y { settingsInstallShutdownHandler = x }
 
 -- | Default server name to be sent as the \"Server:\" header
@@ -440,5 +440,5 @@ pauseTimeout = fromMaybe (return ()) . Vault.lookup pauseTimeoutKey . vault
 --   backend besides Warp, it also throws an 'IO' exception.
 --
 -- Since 3.1.10
-getFileInfo :: Request -> FilePath -> IO FileInfo
-getFileInfo = fromMaybe (\_ -> throwIO (userError "getFileInfo")) . Vault.lookup getFileInfoKey . vault
+getFileInfo :: Request -> FilePath -> Fiber FileInfo
+getFileInfo = fromMaybe (\_ -> liftIO $ throwIO (userError "getFileInfo")) . Vault.lookup getFileInfoKey . vault

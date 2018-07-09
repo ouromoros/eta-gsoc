@@ -55,7 +55,7 @@ import Network.Wai.Handler.Warp.Types
 
 -- | Creating 'Connection' for plain HTTP based on a given socket.
 socketConnection :: Socket -> Fiber Connection
-socketConnection s = liftIO $ do
+socketConnection s = do
     bufferPool <- newBufferPool
     writeBuf <- allocateBuffer bufferSize
     let sendall = Sock.sendAll s
@@ -97,13 +97,13 @@ runEnv p app = do
 -- This opens a listen socket on the port defined in 'Settings' and
 -- calls 'runSettingsSocket'.
 runSettings :: Settings -> Application -> IO ()
-runSettings set app = withSocketsDo $
-    bracket
+runSettings set app = fiber $ withSocketsDo $
+    liftIO $ bracket
         (fiber $ bindPortTCP (settingsPort set) (settingsHost set))
-        close
-        (fiber (\socket -> do
-            setSocketCloseOnExec socket
-            runSettingsSocket set socket app))
+        (fiber . close)
+        (\socket -> do
+            fiber $ setSocketCloseOnExec socket
+            runSettingsSocket set socket app)
 
 -- | This installs a shutdown handler for the given socket and
 -- calls 'runSettingsConnection' with the default connection setup action
@@ -170,8 +170,8 @@ runSettingsConnectionMaker x y =
 runSettingsConnectionMakerSecure :: Settings -> Fiber (Fiber (Connection, Transport), SockAddr) -> Application -> IO ()
 runSettingsConnectionMakerSecure set getConnMaker app = fiber $ do
     settingsBeforeMainLoop set
-    counter <- liftIO newCounter
-    withII0 (fiber . (acceptConnection set getConnMaker app counter))
+    counter <- newCounter
+    withII0 (acceptConnection set getConnMaker app counter)
   where
     withII0 action =
         withTimeoutManager $ \tm ->
@@ -186,10 +186,10 @@ runSettingsConnectionMakerSecure set getConnMaker app = fiber $ do
     !timeoutInSeconds = settingsTimeout set * 1000000
     withTimeoutManager f = case settingsManager set of
         Just tm -> f tm
-        Nothing -> bracket
+        Nothing -> liftIO $ bracket
                    (fiber $ T.initialize timeoutInSeconds)
                    (fiber . T.stopManager)
-                   f
+                   (fiber . f)
 
 -- Note that there is a thorough discussion of the exception safety of the
 -- following code at: https://github.com/yesodweb/wai/issues/146
@@ -260,10 +260,10 @@ fork :: Settings
      -> Counter
      -> InternalInfo0
      -> Fiber ()
-fork set mkConn addr app counter ii0 = settingsFork set $ \unmask ->
+fork set mkConn addr app counter ii0 = liftIO $ settingsFork set $ \unmask ->
     -- Call the user-supplied on exception code if any
     -- exceptions are thrown.
-    handle (settingsOnException set Nothing) .
+    liftIO $ handle (fiber . settingsOnException set Nothing) .
     -- Allocate a new IORef indicating whether the connection has been
     -- closed, to avoid double-freeing a connection
     liftIO $ withClosedRef $ \ref ->
@@ -277,39 +277,39 @@ fork set mkConn addr app counter ii0 = settingsFork set $ \unmask ->
         -- We grab the connection before registering timeouts since the
         -- timeouts will be useless during connection creation, due to the
         -- fact that async exceptions are still masked.
-        bracket mkConn (cleanUp ref) (serve unmask ref)
+        bracket (fiber mkConn) (fiber . cleanUp ref) (serve unmask ref)
   where
     withClosedRef inner = newIORef False >>= inner
 
     closeConn ref conn = do
-        isClosed <- atomicModifyIORef' ref $ \x -> (True, x)
-        unless isClosed (fiber $ connClose conn)
+        isClosed <- liftIO $ atomicModifyIORef' ref $ \x -> (True, x)
+        unless isClosed (connClose conn)
 
-    cleanUp ref (conn, _) = closeConn ref conn `finally` connFree conn
+    cleanUp ref (conn, _) = liftIO $ (fiber $ closeConn ref conn) `finally` (fiber $ connFree conn)
 
     -- We need to register a timeout handler for this thread, and
     -- cancel that handler as soon as we exit. We additionally close
     -- the connection immediately in case the child thread catches the
     -- async exception or performs some long-running cleanup action.
-    serve unmask ref (conn, transport) = bracket register cancel $ \th -> do
+    serve unmask ref (conn, transport) = bracket (fiber register) (fiber . cancel) $ \th -> fiber $ do
         let ii1 = toInternalInfo1 ii0 th
         -- We now have fully registered a connection close handler in
         -- the case of all exceptions, so it is safe to one again
         -- allow async exceptions.
-        unmask .
+        unmask
             -- Call the user-supplied code for connection open and
             -- close events
-           bracket (fiber $ onOpen addr) (fiber $ onClose addr) $ \goingon ->
+           (liftIO $ bracket (fiber $ onOpen addr) (fiber . onClose addr) $ \goingon ->
            -- Actually serve this connection.  bracket with closeConn
            -- above ensures the connection is closed.
-           when goingon $ fiber $ serveConnection conn ii1 addr transport set app
+           when goingon $ fiber $ serveConnection conn ii1 addr transport set app)
       where
         register = T.registerKillThread (timeoutManager0 ii0)
                                         (closeConn ref conn)
         cancel   = T.cancel
 
-    onOpen adr    = (liftIO $ increase counter) >> settingsOnOpen  set adr
-    onClose adr _ = (liftIO $ decrease counter) >> settingsOnClose set adr
+    onOpen adr    = increase counter >> settingsOnOpen  set adr
+    onClose adr _ = decrease counter >> settingsOnClose set adr
 
 
 -- TODO: finish this fun
@@ -341,14 +341,14 @@ serveConnection conn ii1 origAddr transport settings app = do
         liftIO $ writeIORef istatus True
         leftoverSource src bs
         addr <- getProxyProtocolAddr src
-        http1 True addr istatus src `E.catch` \e ->
-          case fromException e of
+        liftIO ((fiber $ http1 True addr istatus src) `E.catch` \e ->
+          fiber $ case fromException e of
             -- See comment below referencing
             -- https://github.com/yesodweb/wai/issues/618
             Just NoKeepAliveRequest -> return ()
             Nothing -> do
               sendErrorResponse addr istatus e
-              liftIO $ throwIO e
+              liftIO $ throwIO e)
   where
     getProxyProtocolAddr src =
         case settingsProxyProtocol settings of
@@ -384,7 +384,7 @@ serveConnection conn ii1 origAddr transport settings app = do
                 _ ->
                     Nothing
         case maybeAddr of
-            Nothing -> throwIO (BadProxyHeader (decodeAscii header))
+            Nothing -> liftIO $ throwIO (BadProxyHeader (decodeAscii header))
             Just a -> do leftoverSource src (S.drop 2 seg') -- drop CRLF
                          return a
 
@@ -397,7 +397,7 @@ serveConnection conn ii1 origAddr transport settings app = do
         | otherwise                                       = True
 
     sendErrorResponse addr istatus e = do
-        status <- readIORef istatus
+        status <- liftIO $ readIORef istatus
         when (shouldSendErrorResponse e && status) $ do
            let ii = toInternalInfo ii1 0 -- dummy
                dreq = dummyreq addr
@@ -410,13 +410,13 @@ serveConnection conn ii1 origAddr transport settings app = do
     http1 firstRequest addr istatus src = do
         (req', mremainingRef, idxhdr, nextBodyFlush, ii) <- recvRequest firstRequest settings conn ii1 addr src
         let req = req' { isSecure = isTransportSecure transport }
-        keepAlive <- processRequest istatus src req mremainingRef idxhdr nextBodyFlush ii
-            `E.catch` \e -> do
+        keepAlive <- liftIO ((fiber $ processRequest istatus src req mremainingRef idxhdr nextBodyFlush ii)
+            `E.catch` \e -> fiber $ do
                 -- Call the user-supplied exception handlers, passing the request.
                 sendErrorResponse addr istatus e
                 settingsOnException settings (Just req) e
                 -- Don't throw the error again to prevent calling settingsOnException twice.
-                return False
+                return False)
 
         -- When doing a keep-alive connection, the other side may just
         -- close the connection. We don't want to treat that as an
@@ -435,17 +435,17 @@ serveConnection conn ii1 origAddr transport settings app = do
         -- In the event that some scarce resource was acquired during
         -- creating the request, we need to make sure that we don't get
         -- an async exception before calling the ResponseSource.
-        keepAliveRef <- newIORef $ error "keepAliveRef not filled"
-        _ <- app req $ \res -> do
+        keepAliveRef <- liftIO $ newIORef $ error "keepAliveRef not filled"
+        _ <- liftIO $ app req $ \res -> fiber $ do
             T.resume th
             -- FIXME consider forcing evaluation of the res here to
             -- send more meaningful error messages to the user.
             -- However, it may affect performance.
-            writeIORef istatus False
+            liftIO $ writeIORef istatus False
             keepAlive <- sendResponse settings conn ii req idxhdr (readSource src) res
-            writeIORef keepAliveRef keepAlive
+            liftIO $ writeIORef keepAliveRef keepAlive
             return ResponseReceived
-        keepAlive <- readIORef keepAliveRef
+        keepAlive <- liftIO $ readIORef keepAliveRef
 
         -- We just send a Response and it takes a time to
         -- receive a Request again. If we immediately call recv,
@@ -479,7 +479,7 @@ serveConnection conn ii1 origAddr transport settings app = do
                                 return False
                     case mremainingRef of
                         Just ref -> do
-                            remaining <- readIORef ref
+                            remaining <- liftIO $ readIORef ref
                             if remaining <= maxToRead then
                                 tryKeepAlive
                               else
@@ -514,7 +514,7 @@ wrappedRecv Connection { connRecv = recv } th istatus slowlorisSize = do
     bs <- recv
     unless (S.null bs) $ do
         liftIO $ writeIORef istatus True
-        when (S.length bs >= slowlorisSize) (liftIO $ T.tickle th)
+        when (S.length bs >= slowlorisSize) (T.tickle th)
     return bs
 
 wrappedRecvN :: T.Handle -> IORef Bool -> Int -> (BufSize -> Fiber ByteString) -> (BufSize -> Fiber ByteString)
