@@ -26,7 +26,7 @@ import qualified Network.Wai.Handler.Warp.Timeout as T
 
 ----------------------------------------------------------------
 
-type Action = T.Manager -> Fiber ()
+type Action = T.Manager -> IO ()
 
 data Command = Stop | Spawn | Add ThreadId | Delete ThreadId
 
@@ -36,16 +36,16 @@ data Manager = Manager (TQueue Command) (IORef Action)
 --   Its action is initially set to 'return ()' and should be set
 --   by 'setAction'. This allows that the action can include
 --   the manager itself.
-start :: Settings -> Fiber Manager
+start :: Settings -> IO Manager
 start set = do
-    q <- liftIO newTQueueIO
-    ref <- liftIO $ newIORef (\_ -> return ())
+    q <- newTQueueIO
+    ref <- newIORef (\_ -> return ())
     timmgr <- T.initialize $ settingsTimeout set * 1000000
-    liftIO $ forkFiber $ go q Set.empty ref timmgr
+    void $ forkIO $ go q Set.empty ref timmgr
     return $ Manager q ref
   where
     go q !tset0 ref timmgr = do
-        x <- liftIO $ atomically $ readTQueue q
+        x <- atomically $ readTQueue q
         case x of
             Stop          -> kill tset0 >> T.killManager timmgr
             Spawn         -> next tset0
@@ -55,27 +55,27 @@ start set = do
                              in go q tset ref timmgr
       where
         next tset = do
-            action <- liftIO $ readIORef ref
-            newtid <- liftIO $ forkFiber (action timmgr)
+            action <- readIORef ref
+            newtid <- forkIO (action timmgr)
             let !tset' = add newtid tset
             go q tset' ref timmgr
 
-setAction :: Manager -> Action -> Fiber ()
-setAction (Manager _ ref) action = liftIO $ writeIORef ref action
+setAction :: Manager -> Action -> IO ()
+setAction (Manager _ ref) action = writeIORef ref action
 
-stop :: Manager -> Fiber ()
-stop (Manager q _) = liftIO $ atomically $ writeTQueue q Stop
+stop :: Manager -> IO ()
+stop (Manager q _) = atomically $ writeTQueue q Stop
 
-spawnAction :: Manager -> Fiber ()
-spawnAction (Manager q _) = liftIO $ atomically $ writeTQueue q Spawn
+spawnAction :: Manager -> IO ()
+spawnAction (Manager q _) = atomically $ writeTQueue q Spawn
 
-addMyId :: Manager -> Fiber ()
-addMyId (Manager q _) = liftIO $ do
+addMyId :: Manager -> IO ()
+addMyId (Manager q _) = do
     tid <- myThreadId
     atomically $ writeTQueue q $ Add tid
 
-deleteMyId :: Manager -> Fiber ()
-deleteMyId (Manager q _) = liftIO $ do
+deleteMyId :: Manager -> IO ()
+deleteMyId (Manager q _) = do
     tid <- myThreadId
     atomically $ writeTQueue q $ Delete tid
 
@@ -91,5 +91,5 @@ del tid set = set'
   where
     !set' = Set.delete tid set
 
-kill :: Set ThreadId -> Fiber ()
-kill set = liftIO $ traverse_ killThread set
+kill :: Set ThreadId -> IO ()
+kill set = traverse_ killThread set

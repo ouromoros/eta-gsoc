@@ -10,8 +10,7 @@ module Network.Wai.Handler.Warp.SendFile (
   ) where
 
 import qualified Data.ByteString as BS
--- import Network.Socket (Socket)
-import Control.Concurrent.Fiber.Network (Socket)
+import Network.Socket (Socket)
 
 -- #ifdef WINDOWS
 import Foreign.ForeignPtr (newForeignPtr_)
@@ -38,7 +37,7 @@ import Network.Wai.Handler.Warp.Types
 --   For other OSes, this is identical to 'readSendFile'.
 --
 -- Since: 3.1.0
-sendFile :: Socket -> Buffer -> BufSize -> (ByteString -> Fiber ()) -> SendFile
+sendFile :: Socket -> Buffer -> BufSize -> (ByteString -> IO ()) -> SendFile
 -- #ifdef SENDFILEFD
 -- sendFile s _ _ _ fid off len act hdr = case mfid of
 --     -- settingsFdCacheDuration is 0
@@ -53,10 +52,10 @@ sendFile _ = readSendFile
 
 ----------------------------------------------------------------
 
-packHeader :: Buffer -> BufSize -> (ByteString -> Fiber ())
-           -> Fiber () -> [ByteString]
+packHeader :: Buffer -> BufSize -> (ByteString -> IO ())
+           -> IO () -> [ByteString]
            -> Int
-           -> Fiber Int
+           -> IO Int
 packHeader _   _   _    _    [] n = return n
 packHeader buf siz send hook (bs:bss) n
   | len < room = do
@@ -85,25 +84,25 @@ mini i n
 --
 -- Since: 3.1.0
 -- #ifdef WINDOWS
-readSendFile :: Buffer -> BufSize -> (ByteString -> Fiber ()) -> SendFile
+readSendFile :: Buffer -> BufSize -> (ByteString -> IO ()) -> SendFile
 readSendFile buf siz send fid off0 len0 hook headers = do
     hn <- packHeader buf siz send hook headers 0
     let room = siz - hn
         buf' = buf `plusPtr` hn
-    liftIO $ IO.withBinaryFile path IO.ReadMode $ \h -> do
+    IO.withBinaryFile path IO.ReadMode $ \h -> do
         IO.hSeek h IO.AbsoluteSeek off0
         n <- IO.hGetBufSome h buf' (mini room len0)
-        fiber $ bufferIO buf (hn + n) send
-        fiber hook
+        bufferIO buf (hn + n) send
+        hook
         let n' = fromIntegral n
         fptr <- newForeignPtr_ buf
-        fiber $ loop h fptr (len0 - n')
+        loop h fptr (len0 - n')
   where
     path = fileIdPath fid
     loop h fptr len
       | len <= 0  = return ()
       | otherwise = do
-        n <- liftIO $ IO.hGetBufSome h buf (mini siz len)
+        n <- IO.hGetBufSome h buf (mini siz len)
         when (n /= 0) $ do
             let bs = PS fptr 0 n
                 n' = fromIntegral n

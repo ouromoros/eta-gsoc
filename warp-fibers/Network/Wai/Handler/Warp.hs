@@ -122,7 +122,8 @@ import Control.Exception (SomeException, throwIO)
 import Data.Streaming.Network (HostPreference)
 import qualified Data.Vault.Lazy as Vault
 import qualified Network.HTTP.Types as H
-import Network.Socket (SockAddr)
+-- import Network.Socket (SockAddr)
+import Control.Concurrent.Fiber.Network (SockAddr)
 import Network.Wai (Request, Response, vault)
 
 import Network.Wai.Handler.Warp.FileInfoCache
@@ -153,7 +154,7 @@ setHost x y = y { settingsHost = x }
 -- Default: 'defaultOnException'
 --
 -- Since 2.1.0
-setOnException :: (Maybe Request -> SomeException -> IO ()) -> Settings -> Settings
+setOnException :: (Maybe Request -> SomeException -> Fiber ()) -> Settings -> Settings
 setOnException x y = y { settingsOnException = x }
 
 -- | A function to create a `Response` when an exception occurs.
@@ -178,13 +179,13 @@ setOnExceptionResponse x y = y { settingsOnExceptionResponse = x }
 -- Default: always returns 'True'.
 --
 -- Since 2.1.0
-setOnOpen :: (SockAddr -> IO Bool) -> Settings -> Settings
+setOnOpen :: (SockAddr -> Fiber Bool) -> Settings -> Settings
 setOnOpen x y = y { settingsOnOpen = x }
 
 -- | What to do when a connection is closed. Default: do nothing.
 --
 -- Since 2.1.0
-setOnClose :: (SockAddr -> IO ()) -> Settings -> Settings
+setOnClose :: (SockAddr -> Fiber ()) -> Settings -> Settings
 setOnClose x y = y { settingsOnClose = x }
 
 -- | Timeout value in seconds. Default value: 30
@@ -237,7 +238,7 @@ setFileInfoCacheDuration x y = y { settingsFileInfoCacheDuration = x }
 -- Default: do nothing.
 --
 -- Since 2.1.0
-setBeforeMainLoop :: IO () -> Settings -> Settings
+setBeforeMainLoop :: Fiber () -> Settings -> Settings
 setBeforeMainLoop x y = y { settingsBeforeMainLoop = x }
 
 -- | Perform no parsing on the rawPathInfo.
@@ -263,15 +264,15 @@ getHost :: Settings -> HostPreference
 getHost = settingsHost
 
 -- | Get the action on opening connection.
-getOnOpen :: Settings -> SockAddr -> IO Bool
+getOnOpen :: Settings -> SockAddr -> Fiber Bool
 getOnOpen = settingsOnOpen
 
 -- | Get the action on closeing connection.
-getOnClose :: Settings -> SockAddr -> IO ()
+getOnClose :: Settings -> SockAddr -> Fiber ()
 getOnClose = settingsOnClose
 
 -- | Get the exception handler.
-getOnException :: Settings -> Maybe Request -> SomeException -> IO ()
+getOnException :: Settings -> Maybe Request -> SomeException -> Fiber ()
 getOnException = settingsOnException
 
 -- | Get the graceful shutdown timeout
@@ -299,7 +300,7 @@ getGracefulShutdownTimeout = settingsGracefulShutdownTimeout
 -- Default: does not install any code.
 --
 -- Since 3.0.1
-setInstallShutdownHandler :: (IO () -> IO ()) -> Settings -> Settings
+setInstallShutdownHandler :: (Fiber () -> IO ()) -> Settings -> Settings
 setInstallShutdownHandler x y = y { settingsInstallShutdownHandler = x }
 
 -- | Default server name to be sent as the \"Server:\" header
@@ -336,7 +337,7 @@ setMaximumBodyFlush x y
 -- Default: void . forkIOWithUnmask
 --
 -- Since 3.0.4
-setFork :: (((forall a. IO a -> IO a) -> IO ()) -> IO ()) -> Settings -> Settings
+setFork :: (((forall a. Fiber a -> Fiber a) -> Fiber ()) -> IO ()) -> Settings -> Settings
 setFork fork' s = s { settingsFork = fork' }
 
 -- | Do not use the PROXY protocol.
@@ -392,7 +393,7 @@ setHTTP2Disabled y = y { settingsHTTP2Enabled = False }
 -- | Setting a log function.
 --
 -- Since 3.X.X
-setLogger :: (Request -> H.Status -> Maybe Integer -> IO ()) -- ^ request, status, maybe file-size
+setLogger :: (Request -> H.Status -> Maybe Integer -> Fiber ()) -- ^ request, status, maybe file-size
           -> Settings
           -> Settings
 setLogger lgr y = y { settingsLogger = lgr }
@@ -400,7 +401,7 @@ setLogger lgr y = y { settingsLogger = lgr }
 -- | Setting a log function for HTTP/2 server push.
 --
 --   Since: 3.2.7
-setServerPushLogger :: (Request -> ByteString -> Integer -> IO ()) -- ^ request, path, file-size
+setServerPushLogger :: (Request -> ByteString -> Integer -> Fiber ()) -- ^ request, path, file-size
                     -> Settings
                     -> Settings
 setServerPushLogger lgr y = y { settingsServerPushLogger = lgr }
@@ -420,7 +421,7 @@ setGracefulShutdownTimeout time y = y { settingsGracefulShutdownTimeout = time }
 -- more information, see <https://github.com/yesodweb/wai/issues/351>
 --
 -- Since 3.0.10
-pauseTimeout :: Request -> IO ()
+pauseTimeout :: Request -> Fiber ()
 pauseTimeout = fromMaybe (return ()) . Vault.lookup pauseTimeoutKey . vault
 
 -- | Getting file information of the target file.
@@ -439,5 +440,5 @@ pauseTimeout = fromMaybe (return ()) . Vault.lookup pauseTimeoutKey . vault
 --   backend besides Warp, it also throws an 'IO' exception.
 --
 -- Since 3.1.10
-getFileInfo :: Request -> FilePath -> IO FileInfo
-getFileInfo = fromMaybe (\_ -> throwIO (userError "getFileInfo")) . Vault.lookup getFileInfoKey . vault
+getFileInfo :: Request -> FilePath -> Fiber FileInfo
+getFileInfo = fromMaybe (\_ -> liftIO $ throwIO (userError "getFileInfo")) . Vault.lookup getFileInfoKey . vault

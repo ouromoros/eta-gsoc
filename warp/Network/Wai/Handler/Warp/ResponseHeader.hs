@@ -15,11 +15,11 @@ import Network.Wai.Handler.Warp.Imports
 
 ----------------------------------------------------------------
 
-composeHeader :: H.HttpVersion -> H.Status -> H.ResponseHeaders -> Fiber ByteString
-composeHeader !httpversion !status !responseHeaders = liftIO $ create len $ \ptr -> do
-    ptr1 <- fiber $ copyStatus ptr httpversion status
-    ptr2 <- fiber $ copyHeaders ptr1 responseHeaders
-    void $ fiber $ copyCRLF ptr2
+composeHeader :: H.HttpVersion -> H.Status -> H.ResponseHeaders -> IO ByteString
+composeHeader !httpversion !status !responseHeaders = create len $ \ptr -> do
+    ptr1 <- copyStatus ptr httpversion status
+    ptr2 <- copyHeaders ptr1 responseHeaders
+    void $ copyCRLF ptr2
   where
     !len = 17 + slen + foldl' fieldLength 0 responseHeaders
     fieldLength !l (!k,!v) = l + S.length (CI.original k) + S.length v + 4
@@ -32,13 +32,13 @@ httpVer10 :: ByteString
 httpVer10 = "HTTP/1.0 "
 
 {-# INLINE copyStatus #-}
-copyStatus :: Ptr Word8 -> H.HttpVersion -> H.Status -> Fiber (Ptr Word8)
+copyStatus :: Ptr Word8 -> H.HttpVersion -> H.Status -> IO (Ptr Word8)
 copyStatus !ptr !httpversion !status = do
     ptr1 <- copy ptr httpVer
-    liftIO $ writeWord8OffPtr ptr1 0 (zero + fromIntegral r2)
-    liftIO $ writeWord8OffPtr ptr1 1 (zero + fromIntegral r1)
-    liftIO $ writeWord8OffPtr ptr1 2 (zero + fromIntegral r0)
-    liftIO $ writeWord8OffPtr ptr1 3 spc
+    writeWord8OffPtr ptr1 0 (zero + fromIntegral r2)
+    writeWord8OffPtr ptr1 1 (zero + fromIntegral r1)
+    writeWord8OffPtr ptr1 2 (zero + fromIntegral r0)
+    writeWord8OffPtr ptr1 3 spc
     ptr2 <- copy (ptr1 `plusPtr` 4) (H.statusMessage status)
     copyCRLF ptr2
   where
@@ -50,26 +50,26 @@ copyStatus !ptr !httpversion !status = do
     r2 = q1 `mod` 10
 
 {-# INLINE copyHeaders #-}
-copyHeaders :: Ptr Word8 -> [H.Header] -> Fiber (Ptr Word8)
+copyHeaders :: Ptr Word8 -> [H.Header] -> IO (Ptr Word8)
 copyHeaders !ptr [] = return ptr
 copyHeaders !ptr (h:hs) = do
     ptr1 <- copyHeader ptr h
     copyHeaders ptr1 hs
 
 {-# INLINE copyHeader #-}
-copyHeader :: Ptr Word8 -> H.Header -> Fiber (Ptr Word8)
+copyHeader :: Ptr Word8 -> H.Header -> IO (Ptr Word8)
 copyHeader !ptr (k,v) = do
     ptr1 <- copy ptr (CI.original k)
-    liftIO $ writeWord8OffPtr ptr1 0 colon
-    liftIO $ writeWord8OffPtr ptr1 1 spc
+    writeWord8OffPtr ptr1 0 colon
+    writeWord8OffPtr ptr1 1 spc
     ptr2 <- copy (ptr1 `plusPtr` 2) v
     copyCRLF ptr2
 
 {-# INLINE copyCRLF #-}
-copyCRLF :: Ptr Word8 -> Fiber (Ptr Word8)
+copyCRLF :: Ptr Word8 -> IO (Ptr Word8)
 copyCRLF !ptr = do
-    liftIO $ writeWord8OffPtr ptr 0 cr
-    liftIO $ writeWord8OffPtr ptr 1 lf
+    writeWord8OffPtr ptr 0 cr
+    writeWord8OffPtr ptr 1 lf
     return $! ptr `plusPtr` 2
 
 zero :: Word8

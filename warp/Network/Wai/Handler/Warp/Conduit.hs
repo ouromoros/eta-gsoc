@@ -14,18 +14,18 @@ import Network.Wai.Handler.Warp.Types
 -- | Contains a @Source@ and a byte count that is still to be read in.
 data ISource = ISource !Source !(I.IORef Int)
 
-mkISource :: Source -> Int -> Fiber ISource
+mkISource :: Source -> Int -> IO ISource
 mkISource src cnt = do
-    ref <- liftIO $ I.newIORef cnt
+    ref <- I.newIORef cnt
     return $! ISource src ref
 
 -- | Given an @IsolatedBSSource@ provide a @Source@ that only allows up to the
 -- specified number of bytes to be passed downstream. All leftovers should be
 -- retained within the @Source@. If there are not enough bytes available,
 -- throws a @ConnectionClosedByPeer@ exception.
-readISource :: ISource -> Fiber ByteString
+readISource :: ISource -> IO ByteString
 readISource (ISource src ref) = do
-    count <- liftIO $ I.readIORef ref
+    count <- I.readIORef ref
     if count == 0
         then return S.empty
         else do
@@ -34,7 +34,7 @@ readISource (ISource src ref) = do
 
         -- If no chunk available, then there aren't enough bytes in the
         -- stream. Throw a ConnectionClosedByPeer
-        when (S.null bs) $ liftIO $ throwIO ConnectionClosedByPeer
+        when (S.null bs) $ throwIO ConnectionClosedByPeer
 
         let -- How many of the bytes in this chunk to send downstream
             toSend = min count (S.length bs)
@@ -47,7 +47,7 @@ readISource (ISource src ref) = do
                 -- downstream, and then loop on this function for the
                 -- next chunk.
                 | count' > 0 -> do
-                    liftIO $ I.writeIORef ref count'
+                    I.writeIORef ref count'
                     return bs
 
                 -- Some of the bytes in this chunk should not be sent
@@ -57,7 +57,7 @@ readISource (ISource src ref) = do
                 | otherwise -> do
                     let (x, y) = S.splitAt toSend bs
                     leftoverSource src y
-                    assert (count' == 0) $ liftIO $ I.writeIORef ref count'
+                    assert (count' == 0) $ I.writeIORef ref count'
                     return x
 
 ----------------------------------------------------------------
@@ -70,14 +70,14 @@ data ChunkState = NeedLen
                 | DoneChunking
     deriving Show
 
-mkCSource :: Source -> Fiber CSource
+mkCSource :: Source -> IO CSource
 mkCSource src = do
-    ref <- liftIO $ I.newIORef NeedLen
+    ref <- I.newIORef NeedLen
     return $! CSource src ref
 
-readCSource :: CSource -> Fiber ByteString
+readCSource :: CSource -> IO ByteString
 readCSource (CSource src ref) = do
-    mlen <- liftIO $ I.readIORef ref
+    mlen <- I.readIORef ref
     go mlen
   where
     withLen 0 bs = do
@@ -87,7 +87,7 @@ readCSource (CSource src ref) = do
     withLen len bs
         | S.null bs = do
             -- FIXME should this throw an exception if len > 0?
-            liftIO $ I.writeIORef ref DoneChunking
+            I.writeIORef ref DoneChunking
             return S.empty
         | otherwise =
             case S.length bs `compare` fromIntegral len of
@@ -99,7 +99,7 @@ readCSource (CSource src ref) = do
                     yield' x NeedLenNewline
 
     yield' bs mlen = do
-        liftIO $ I.writeIORef ref mlen
+        I.writeIORef ref mlen
         return bs
 
     dropCRLF = do
@@ -123,7 +123,7 @@ readCSource (CSource src ref) = do
     go (HaveLen 0) = do
         -- Drop the final CRLF
         dropCRLF
-        liftIO $ I.writeIORef ref DoneChunking
+        I.writeIORef ref DoneChunking
         return S.empty
     go (HaveLen len) = do
         bs <- readSource src
@@ -135,7 +135,7 @@ readCSource (CSource src ref) = do
         bs <- readSource src
         if S.null bs
             then do
-                liftIO $ I.writeIORef ref $ assert False $ HaveLen 0
+                I.writeIORef ref $ assert False $ HaveLen 0
                 return S.empty
             else do
                 (x, y) <-

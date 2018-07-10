@@ -5,7 +5,7 @@
 module Network.Wai.Handler.Warp.Settings where
 
 -- import Control.Concurrent (forkIOWithUnmask)
-import Control.Concurrent.Fibers (forkFiber)
+import Control.Concurrent.Fiber
 import Control.Exception
 import Data.ByteString.Builder (byteString)
 import qualified Data.ByteString.Char8 as C8
@@ -16,9 +16,9 @@ import Data.Version (showVersion)
 import GHC.IO.Exception (IOErrorType(..))
 import qualified Network.HTTP.Types as H
 -- import Network.Socket (SockAddr)
-import Control.Concurrent.Fibers.Network (SockAddr)
+import Control.Concurrent.Fiber.Network (SockAddr)
 import Network.Wai
-import qualified Paths_warp
+import qualified Paths_warp_fibers
 import System.IO (stderr)
 import System.IO.Error (ioeGetErrorType)
 
@@ -96,11 +96,11 @@ data Settings = Settings
       -- ^ Whether to enable HTTP2 ALPN/upgrades. Default: True
       --
       -- Since 3.1.7.
-    , settingsLogger :: Request -> H.Status -> Maybe Integer -> IO ()
+    , settingsLogger :: Request -> H.Status -> Maybe Integer -> Fiber ()
       -- ^ A log function. Default: no action.
       --
       -- Since 3.X.X.
-    , settingsServerPushLogger :: Request -> ByteString -> Integer -> IO ()
+    , settingsServerPushLogger :: Request -> ByteString -> Integer -> Fiber ()
       -- ^ A HTTP/2 server push log function. Default: no action.
       --
       -- Since 3.X.X.
@@ -134,10 +134,10 @@ defaultSettings = Settings
     , settingsFdCacheDuration = 0
     , settingsFileInfoCacheDuration = 0
     , settingsBeforeMainLoop = return ()
-    , settingsFork = void . forkFiber
+    , settingsFork = undefined -- forkFiberWithUnmask
     , settingsNoParsePath = False
     , settingsInstallShutdownHandler = const $ return ()
-    , settingsServerName = C8.pack $ "Warp/" ++ showVersion Paths_warp.version
+    , settingsServerName = C8.pack $ "Warp/" ++ showVersion Paths_warp_fibers.version
     , settingsMaximumBodyFlush = Just 8192
     , settingsProxyProtocol = ProxyProtocolNone
     , settingsSlowlorisSize = 2048
@@ -165,10 +165,10 @@ defaultShouldDisplayException se
 --   if `defaultShouldDisplayException` returns `True`.
 --
 -- Since: 3.1.0
-defaultOnException :: Maybe Request -> SomeException -> IO ()
+defaultOnException :: Maybe Request -> SomeException -> Fiber ()
 defaultOnException _ e =
     when (defaultShouldDisplayException e)
-        $ TIO.hPutStrLn stderr $ T.pack $ show e
+        $ liftIO $ TIO.hPutStrLn stderr $ T.pack $ show e
 
 -- | Sending 400 for bad requests. Sending 500 for internal server errors.
 --

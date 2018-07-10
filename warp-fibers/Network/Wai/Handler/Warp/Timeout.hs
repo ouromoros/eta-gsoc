@@ -25,10 +25,12 @@ module Network.Wai.Handler.Warp.Timeout (
 
 import Control.Concurrent (myThreadId)
 import qualified Control.Exception as E
+import Control.Concurrent.Fiber
 import Control.Reaper
 import Data.Typeable (Typeable)
 import Data.IORef (IORef)
 import qualified Data.IORef as I
+import Network.Wai.Handler.Warp.Fiber
 
 ----------------------------------------------------------------
 
@@ -36,7 +38,7 @@ import qualified Data.IORef as I
 type Manager = Reaper [Handle] Handle
 
 -- | An action to be performed on timeout.
-type TimeoutAction = IO ()
+type TimeoutAction = Fiber ()
 
 -- | A handle used by 'Manager'
 data Handle = Handle !(IORef TimeoutAction) !(IORef State)
@@ -50,8 +52,8 @@ data State = Active    -- Manager turns it to Inactive.
 
 -- | Creating timeout manager which works every N micro seconds
 --   where N is the first argument.
-initialize :: Int -> IO Manager
-initialize timeout = mkReaper defaultReaperSettings
+initialize :: Int -> Fiber Manager
+initialize timeout = liftIO $ mkReaper defaultReaperSettings
         { reaperAction = mkListAction prune
         , reaperDelay = timeout
         }
@@ -61,7 +63,7 @@ initialize timeout = mkReaper defaultReaperSettings
         case state of
             Inactive -> do
                 onTimeout <- I.readIORef actionRef
-                onTimeout `E.catch` ignoreAll
+                (fiber onTimeout) `E.catch` (fiber . ignoreAll)
                 return Nothing
             Canceled -> return Nothing
             _        -> return $ Just m
@@ -72,25 +74,25 @@ initialize timeout = mkReaper defaultReaperSettings
 ----------------------------------------------------------------
 
 -- | Stopping timeout manager with onTimeout fired.
-stopManager :: Manager -> IO ()
-stopManager mgr = E.mask_ (reaperStop mgr >>= mapM_ fire)
+stopManager :: Manager -> Fiber ()
+stopManager mgr = liftIO $ E.mask_ (reaperStop mgr >>= mapM_ fire)
   where
     fire (Handle actionRef _) = do
         onTimeout <- I.readIORef actionRef
-        onTimeout `E.catch` ignoreAll
+        (fiber onTimeout) `E.catch` (fiber . ignoreAll)
 
-ignoreAll :: E.SomeException -> IO ()
+ignoreAll :: E.SomeException -> Fiber ()
 ignoreAll _ = return ()
 
 -- | Killing timeout manager immediately without firing onTimeout.
-killManager :: Manager -> IO ()
-killManager = reaperKill
+killManager :: Manager -> Fiber ()
+killManager = liftIO . reaperKill
 
 ----------------------------------------------------------------
 
 -- | Registering a timeout action.
-register :: Manager -> TimeoutAction -> IO Handle
-register mgr onTimeout = do
+register :: Manager -> TimeoutAction -> Fiber Handle
+register mgr onTimeout = liftIO $ do
     actionRef <- I.newIORef onTimeout
     stateRef  <- I.newIORef Active
     let h = Handle actionRef stateRef
@@ -98,16 +100,16 @@ register mgr onTimeout = do
     return h
 
 -- | Registering a timeout action of killing this thread.
-registerKillThread :: Manager -> TimeoutAction -> IO Handle
+registerKillThread :: Manager -> TimeoutAction -> Fiber Handle
 registerKillThread m onTimeout = do
     -- If we hold ThreadId, the stack and data of the thread is leaked.
     -- If we hold Weak ThreadId, the stack is released. However, its
     -- data is still leaked probably because of a bug of GHC.
     -- So, let's just use ThreadId and release ThreadId by
     -- overriding the timeout action by "cancel".
-    tid <- myThreadId
+    tid <- liftIO myThreadId
     -- First run the timeout action in case the child thread is masked.
-    register m $ onTimeout `E.finally` E.throwTo tid TimeoutThread
+    register m (liftIO $ (fiber onTimeout) `E.finally` E.throwTo tid TimeoutThread)
 
 data TimeoutThread = TimeoutThread
     deriving Typeable
@@ -121,32 +123,32 @@ instance Show TimeoutThread where
 
 -- | Setting the state to active.
 --   'Manager' turns active to inactive repeatedly.
-tickle :: Handle -> IO ()
-tickle (Handle _ stateRef) = I.writeIORef stateRef Active
+tickle :: Handle -> Fiber ()
+tickle (Handle _ stateRef) = liftIO $ I.writeIORef stateRef Active
 
 -- | Setting the state to canceled.
 --   'Manager' eventually removes this without timeout action.
-cancel :: Handle -> IO ()
-cancel (Handle actionRef stateRef) = do
+cancel :: Handle -> Fiber ()
+cancel (Handle actionRef stateRef) = liftIO $ do
     I.writeIORef actionRef (return ()) -- ensuring to release ThreadId
     I.writeIORef stateRef Canceled
 
 -- | Setting the state to paused.
 --   'Manager' does not change the value.
-pause :: Handle -> IO ()
-pause (Handle _ stateRef) = I.writeIORef stateRef Paused
+pause :: Handle -> Fiber ()
+pause (Handle _ stateRef) = liftIO $ I.writeIORef stateRef Paused
 
 -- | Setting the paused state to active.
 --   This is an alias to 'tickle'.
-resume :: Handle -> IO ()
+resume :: Handle -> Fiber ()
 resume = tickle
 
 ----------------------------------------------------------------
 
 -- | Call the inner function with a timeout manager.
 withManager :: Int -- ^ timeout in microseconds
-            -> (Manager -> IO a)
-            -> IO a
+            -> (Manager -> Fiber a)
+            -> Fiber a
 withManager timeout f = do
     -- FIXME when stopManager is available, use it
     man <- initialize timeout

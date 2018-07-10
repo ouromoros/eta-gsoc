@@ -103,9 +103,9 @@ sendResponse :: Settings
              -> InternalInfo
              -> Request -- ^ HTTP request.
              -> IndexedHeader -- ^ Indexed header of HTTP request.
-             -> Fiber ByteString -- ^ source from client, for raw response
+             -> IO ByteString -- ^ source from client, for raw response
              -> Response -- ^ HTTP response including status code and response header.
-             -> Fiber Bool -- ^ Returing True if the connection is persistent.
+             -> IO Bool -- ^ Returing True if the connection is persistent.
 sendResponse settings conn ii req reqidxhdr src response = do
     hs <- addServerAndDate hs0
     if hasBody s then do
@@ -148,8 +148,7 @@ sendResponse settings conn ii req reqidxhdr src response = do
         ResponseStream _ _ fb
           | isHead                  -> RspNoBody
           | otherwise               -> RspStream fb needsChunked th
-        ResponseRaw raw _           -> RspRaw raw' src (T.tickle th)
-          where raw' = \x y -> liftIO $ raw (fiber x) (fiber . y)
+        ResponseRaw raw _           -> RspRaw raw src (T.tickle th)
     -- Make sure we don't hang on to 'response' (avoid space leak)
     !ret = case response of
         ResponseFile    {} -> isPersist
@@ -185,10 +184,10 @@ sanitizeHeaderValue v = case C8.lines $ S.filter (/= _cr) v of
 ----------------------------------------------------------------
 
 data Rsp = RspNoBody
-         | RspFile FilePath (Maybe FilePart) IndexedHeader Bool (Fiber ())
+         | RspFile FilePath (Maybe FilePart) IndexedHeader Bool (IO ())
          | RspBuilder Builder Bool
          | RspStream StreamingBody Bool T.Handle
-         | RspRaw (Fiber ByteString -> (ByteString -> Fiber ()) -> Fiber ()) (Fiber ByteString) (Fiber ())
+         | RspRaw (IO ByteString -> (ByteString -> IO ()) -> IO ()) (IO ByteString) (IO ())
 
 ----------------------------------------------------------------
 
@@ -198,7 +197,7 @@ sendRsp :: Connection
         -> H.Status
         -> H.ResponseHeaders
         -> Rsp
-        -> Fiber (Maybe H.Status, Maybe Integer)
+        -> IO (Maybe H.Status, Maybe Integer)
 
 ----------------------------------------------------------------
 
@@ -225,12 +224,12 @@ sendRsp conn _ ver s hs (RspBuilder body needsChunked) = do
 
 sendRsp conn _ ver s hs (RspStream streamingBody needsChunked th) = do
     header <- composeHeaderBuilder ver s hs needsChunked
-    (recv, finish) <- liftIO $ newByteStringBuilderRecv $ reuseBufferStrategy
-                    $ fiber $ toBuilderBuffer (connWriteBuffer conn) (connBufferSize conn)
+    (recv, finish) <- newByteStringBuilderRecv $ reuseBufferStrategy
+                    $ toBuilderBuffer (connWriteBuffer conn) (connBufferSize conn)
     let send builder = do
-            popper <- liftIO $ recv builder
+            popper <- recv builder
             let loop = do
-                    bs <- liftIO popper
+                    bs <- popper
                     unless (S.null bs) $ do
                         sendFragment conn th bs
                         loop
@@ -239,9 +238,9 @@ sendRsp conn _ ver s hs (RspStream streamingBody needsChunked th) = do
             | needsChunked = send . chunkedTransferEncoding
             | otherwise = send
     send header
-    liftIO $ streamingBody (fiber .sendChunk) (fiber $ sendChunk flush)
+    streamingBody sendChunk (sendChunk flush)
     when needsChunked $ send chunkedTransferTerminator
-    mbs <- liftIO finish
+    mbs <- finish
     maybe (return ()) (sendFragment conn th) mbs
     return (Just s, Nothing) -- fixme: can we tell the actual sent bytes?
 
@@ -273,7 +272,7 @@ sendRsp conn ii ver s0 hs0 (RspFile path (Just part) _ isHead hook) =
 -- Simple WAI applications.
 -- Status is ignored
 sendRsp conn ii ver _ hs0 (RspFile path Nothing idxhdr isHead hook) = do
-    efinfo <- liftIO $ E.try $ fiber $ getFileInfo ii path
+    efinfo <- E.try $ getFileInfo ii path
     case efinfo of
         Left (_ex :: E.IOException) ->
 #ifdef WARP_DEBUG
@@ -295,8 +294,8 @@ sendRspFile2XX :: Connection
                -> Integer
                -> Integer
                -> Bool
-               -> Fiber ()
-               -> Fiber (Maybe H.Status, Maybe Integer)
+               -> IO ()
+               -> IO (Maybe H.Status, Maybe Integer)
 sendRspFile2XX conn ii ver s hs path beg len isHead hook
   | isHead = sendRsp conn ii ver s hs RspNoBody
   | otherwise = do
@@ -311,7 +310,7 @@ sendRspFile404 :: Connection
                -> InternalInfo
                -> H.HttpVersion
                -> H.ResponseHeaders
-               -> Fiber (Maybe H.Status, Maybe Integer)
+               -> IO (Maybe H.Status, Maybe Integer)
 sendRspFile404 conn ii ver hs0 = sendRsp conn ii ver s hs (RspBuilder body True)
   where
     s = H.notFound404
@@ -322,7 +321,7 @@ sendRspFile404 conn ii ver hs0 = sendRsp conn ii ver s hs (RspBuilder body True)
 ----------------------------------------------------------------
 
 -- | Use 'connSendAll' to send this data while respecting timeout rules.
-sendFragment :: Connection -> T.Handle -> ByteString -> Fiber ()
+sendFragment :: Connection -> T.Handle -> ByteString -> IO ()
 sendFragment Connection { connSendAll = send } th bs = do
     T.resume th
     send bs
@@ -385,7 +384,7 @@ hasBody s = sc /= 204
 addTransferEncoding :: H.ResponseHeaders -> H.ResponseHeaders
 addTransferEncoding hdrs = (H.hTransferEncoding, "chunked") : hdrs
 
-addDate :: Fiber D.GMTDate -> IndexedHeader -> H.ResponseHeaders -> Fiber H.ResponseHeaders
+addDate :: IO D.GMTDate -> IndexedHeader -> H.ResponseHeaders -> IO H.ResponseHeaders
 addDate getdate rspidxhdr hdrs = case rspidxhdr ! fromEnum ResDate of
     Nothing -> do
         gmtdate <- getdate
@@ -418,7 +417,7 @@ replaceHeader k v hdrs = (k,v) : deleteBy ((==) `on` fst) (k,v) hdrs
 
 ----------------------------------------------------------------
 
-composeHeaderBuilder :: H.HttpVersion -> H.Status -> H.ResponseHeaders -> Bool -> Fiber Builder
+composeHeaderBuilder :: H.HttpVersion -> H.Status -> H.ResponseHeaders -> Bool -> IO Builder
 composeHeaderBuilder ver s hs True =
     byteString <$> composeHeader ver s (addTransferEncoding hs)
 composeHeaderBuilder ver s hs False =

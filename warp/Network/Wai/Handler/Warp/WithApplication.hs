@@ -8,24 +8,16 @@ module Network.Wai.Handler.Warp.WithApplication (
   withFreePort,
 ) where
 
-import           Control.Concurrent (myThreadId)
+import           Control.Concurrent
 import           Control.Concurrent.Async
 import           Control.Exception
 import           Control.Monad (when)
--- import           Data.Streaming.Network (bindRandomPortTCP)
--- import           Control.Concurrent.Fiber.Network (bindRandomPortTCP)
--- import           Network.Socket
-import           Control.Concurrent.Fiber.Network
+import           Data.Streaming.Network (bindRandomPortTCP)
+import           Network.Socket
 import           Network.Wai
 import           Network.Wai.Handler.Warp.Run
 import           Network.Wai.Handler.Warp.Settings
 import           Network.Wai.Handler.Warp.Types
-import           Network.Wai.Handler.Warp.Fiber
-import           Control.Concurrent.Fiber
-
-bindRandomPortTCP = undefined
-readMVar :: MVar a -> Fiber a
-readMVar = undefined
 
 -- | Runs the given 'Application' on a free port. Passes the port to the given
 -- operation and executes it, while the 'Application' is running. Shuts down the
@@ -47,7 +39,7 @@ withApplicationSettings settings' mkApp action = do
     let settings =
           settings' {
             settingsBeforeMainLoop
-              = (liftIO $ notify started ()) >> settingsBeforeMainLoop settings'
+              = notify started () >> settingsBeforeMainLoop settings'
           }
     result <- race
       (runSettingsSocket settings sock app)
@@ -97,8 +89,8 @@ mkWaiter :: IO (Waiter a)
 mkWaiter = do
   mvar <- newEmptyMVar
   return Waiter {
-    notify = fiber . putMVar mvar,
-    waitFor = fiber $ readMVar mvar
+    notify = putMVar mvar,
+    waitFor = readMVar mvar
   }
 
 -- | Opens a socket on a free port and returns both port and socket.
@@ -109,4 +101,4 @@ openFreePort = bindRandomPortTCP "127.0.0.1"
 
 -- | Like 'openFreePort' but closes the socket before exiting.
 withFreePort :: ((Port, Socket) -> IO a) -> IO a
-withFreePort = bracket openFreePort (fiber . close . snd)
+withFreePort = bracket openFreePort (close . snd)

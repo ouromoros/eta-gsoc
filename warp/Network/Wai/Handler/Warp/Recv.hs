@@ -16,29 +16,27 @@ import Foreign.C.Error (eAGAIN, getErrno, throwErrno)
 import Foreign.C.Types
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (Ptr, castPtr, plusPtr)
--- import GHC.Conc (threadWaitRead)
-import Control.Concurrent.Fiber.Network.Internal (threadWaitRead)
--- import Network.Socket (Socket, fdSocket)
-import Control.Concurrent.Fiber.Network (Socket)
+import GHC.Conc (threadWaitRead)
+-- import Control.Concurrent.Fiber.Network.Internal (threadWaitRead)
+import Network.Socket (Socket, fdSocket)
 
 import Network.Wai.Handler.Warp.Buffer
 import Network.Wai.Handler.Warp.Imports
 import Network.Wai.Handler.Warp.Types
 
 -- #ifdef mingw32_HOST_OS
-import GHC.IO.FD (FD(..), FDType(..))
+import GHC.IO.FD (FD(..), FDType(..), readRawBufferPtr)
 import System.Posix.Types (Channel)
-import Control.Concurrent.Fiber.Network (readRawBufferPtr)
--- import Network.Wai.Handler.Warp.Windows
+-- import Control.Concurrent.Fiber.Network (readRawBufferPtr)
+-- import Control.Concurrent.Fiber
+import Network.Wai.Handler.Warp.Windows
 -- #endif
 
 ----------------------------------------------------------------
 
-fdSocket = undefined
-
-makeReceiveN :: ByteString -> Recv -> RecvBuf -> Fiber (BufSize -> Fiber ByteString)
+makeReceiveN :: ByteString -> Recv -> RecvBuf -> IO (BufSize -> IO ByteString)
 makeReceiveN bs0 recv recvBuf = do
-    ref <- liftIO $ newIORef bs0
+    ref <- newIORef bs0
     return $ receiveN ref recv recvBuf
 
 -- | This function returns a receiving function
@@ -46,17 +44,17 @@ makeReceiveN bs0 recv recvBuf = do
 --   The returned function efficiently manages received data
 --   which is initialized by the first argument.
 --   The returned function may allocate a byte string with malloc().
-makePlainReceiveN :: Socket -> ByteString -> Fiber (BufSize -> Fiber ByteString)
+makePlainReceiveN :: Socket -> ByteString -> IO (BufSize -> IO ByteString)
 makePlainReceiveN s bs0 = do
-    ref <- liftIO $ newIORef bs0
+    ref <- newIORef bs0
     pool <- newBufferPool
     return $ receiveN ref (receive s pool) (receiveBuf s)
 
-receiveN :: IORef ByteString -> Recv -> RecvBuf -> BufSize -> Fiber ByteString
-receiveN ref recv recvBuf size = liftIO $ E.handle handler $ fiber $ do
-    cached <- liftIO $ readIORef ref
+receiveN :: IORef ByteString -> Recv -> RecvBuf -> BufSize -> IO ByteString
+receiveN ref recv recvBuf size = E.handle handler $ do
+    cached <- readIORef ref
     (bs, leftover) <- spell cached size recv recvBuf
-    liftIO $ writeIORef ref leftover
+    writeIORef ref leftover
     return bs
  where
    handler :: E.SomeException -> IO ByteString
@@ -64,14 +62,14 @@ receiveN ref recv recvBuf size = liftIO $ E.handle handler $ fiber $ do
 
 ----------------------------------------------------------------
 
-spell :: ByteString -> BufSize -> Fiber ByteString -> RecvBuf -> Fiber (ByteString, ByteString)
+spell :: ByteString -> BufSize -> IO ByteString -> RecvBuf -> IO (ByteString, ByteString)
 spell init0 siz0 recv recvBuf
   | siz0 <= len0 = return $ BS.splitAt siz0 init0
   -- fixme: hard coding 4096
   | siz0 <= 4096 = loop [init0] (siz0 - len0)
   | otherwise    = do
       bs@(PS fptr _ _) <- mallocBS siz0
-      liftIO $ withForeignPtr fptr $ \ptr -> fiber $ do
+      withForeignPtr fptr $ \ptr -> do
           ptr' <- copy ptr init0
           full <- recvBuf ptr' (siz0 - len0)
           if full then
@@ -113,17 +111,22 @@ receiveBuf sock buf0 siz0 = loop buf0 siz0
             loop (buf `plusPtr` n) (siz - n)
     fd = fdSocket sock
 
-receiveloop :: Channel -> Ptr Word8 -> CSize -> Fiber CInt
+receiveloop :: Channel -> Ptr Word8 -> CSize -> IO CInt
 -- receiveloop = undefined
 receiveloop sock ptr size = do
+-- #ifdef mingw32_HOST_OS
+    -- bytes <- windowsThreadBlockHack $ fromIntegral <$> readRawBufferPtr "recv" (FD sock 1) (castPtr ptr) 0 size
     bytes <- fromIntegral <$> readRawBufferPtr "recv" (FD (FDGeneric sock) True)(castPtr ptr) 0 size
+-- #else
+--     bytes <- c_recv sock (castPtr ptr) size 0
+-- #endif
     if bytes == -1 then do
-        errno <- liftIO getErrno
+        errno <- getErrno
         if errno == eAGAIN then do
             threadWaitRead sock
             receiveloop sock ptr size
           else
-            liftIO $ throwErrno "receiveloop"
+            throwErrno "receiveloop"
        else
         return bytes
 

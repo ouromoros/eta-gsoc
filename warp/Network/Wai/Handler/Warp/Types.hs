@@ -65,7 +65,7 @@ data FileId = FileId {
 -- |  fileid, offset, length, hook action, HTTP headers
 --
 -- Since: 3.1.0
-type SendFile = FileId -> Integer -> Integer -> Fiber () -> [ByteString] -> Fiber ()
+type SendFile = FileId -> Integer -> Integer -> IO () -> [ByteString] -> IO ()
 
 -- | Type for read buffer pool
 type BufferPool = IORef ByteString
@@ -77,28 +77,28 @@ type Buffer = Ptr Word8
 type BufSize = Int
 
 -- | Type for the action to receive input data
-type Recv = Fiber ByteString
+type Recv = IO ByteString
 
 -- | Type for the action to receive input data with a buffer.
 --   The result boolean indicates whether or not the buffer is fully filled.
-type RecvBuf = Buffer -> BufSize -> Fiber Bool
+type RecvBuf = Buffer -> BufSize -> IO Bool
 
 -- | Data type to manipulate IO actions for connections.
 --   This is used to abstract IO actions for plain HTTP and HTTP over TLS.
 data Connection = Connection {
     -- | This is not used at this moment.
-      connSendMany    :: [ByteString] -> Fiber ()
+      connSendMany    :: [ByteString] -> IO ()
     -- | The sending function.
-    , connSendAll     :: ByteString -> Fiber ()
+    , connSendAll     :: ByteString -> IO ()
     -- | The sending function for files in HTTP/1.1.
     , connSendFile    :: SendFile
     -- | The connection closing function. Warp guarantees it will only be
     -- called once. Other functions (like 'connRecv') may be called after
     -- 'connClose' is called.
-    , connClose       :: Fiber ()
+    , connClose       :: IO ()
     -- | Free any buffers allocated. Warp guarantees it will only be
     -- called once, and no other functions will be called after it.
-    , connFree        :: Fiber ()
+    , connFree        :: IO ()
     -- | The connection receiving function. This returns "" for EOF.
     , connRecv        :: Recv
     -- | The connection receiving function. This tries to fill the buffer.
@@ -117,9 +117,9 @@ type Hash = Int
 
 data InternalInfo0 =
     InternalInfo0 T.Manager
-                  (Fiber D.GMTDate)
-                  (Hash -> FilePath -> Fiber (Maybe F.Fd, F.Refresh))
-                  (Hash -> FilePath -> Fiber I.FileInfo)
+                  (IO D.GMTDate)
+                  (Hash -> FilePath -> IO (Maybe F.Fd, F.Refresh))
+                  (Hash -> FilePath -> IO I.FileInfo)
 
 timeoutManager0 :: InternalInfo0 -> T.Manager
 timeoutManager0 (InternalInfo0 tm _ _ _) = tm
@@ -127,9 +127,9 @@ timeoutManager0 (InternalInfo0 tm _ _ _) = tm
 data InternalInfo1 =
     InternalInfo1 T.Handle
                   T.Manager
-                  (Fiber D.GMTDate)
-                  (Hash -> FilePath -> Fiber (Maybe F.Fd, F.Refresh))
-                  (Hash -> FilePath -> Fiber I.FileInfo)
+                  (IO D.GMTDate)
+                  (Hash -> FilePath -> IO (Maybe F.Fd, F.Refresh))
+                  (Hash -> FilePath -> IO I.FileInfo)
 
 toInternalInfo1 :: InternalInfo0 -> T.Handle -> InternalInfo1
 toInternalInfo1 (InternalInfo0 b c d e) a = InternalInfo1 a b c d e
@@ -140,9 +140,9 @@ threadHandle1 (InternalInfo1 th _ _ _ _) = th
 data InternalInfo = InternalInfo {
     threadHandle   :: T.Handle
   , timeoutManager :: T.Manager
-  , getDate        :: Fiber D.GMTDate
-  , getFd          :: FilePath -> Fiber (Maybe F.Fd, F.Refresh)
-  , getFileInfo    :: FilePath -> Fiber I.FileInfo
+  , getDate        :: IO D.GMTDate
+  , getFd          :: FilePath -> IO (Maybe F.Fd, F.Refresh)
+  , getFileInfo    :: FilePath -> IO I.FileInfo
   }
 
 toInternalInfo :: InternalInfo1 -> Hash -> InternalInfo
@@ -151,31 +151,31 @@ toInternalInfo (InternalInfo1 a b c d e) h = InternalInfo a b c (d h) (e h)
 ----------------------------------------------------------------
 
 -- | Type for input streaming.
-data Source = Source !(IORef ByteString) !(Fiber ByteString)
+data Source = Source !(IORef ByteString) !(IO ByteString)
 
-mkSource :: Fiber ByteString -> Fiber Source
+mkSource :: IO ByteString -> IO Source
 mkSource func = do
-    ref <- liftIO $ newIORef S.empty
+    ref <- newIORef S.empty
     return $! Source ref func
 
-readSource :: Source -> Fiber ByteString
+readSource :: Source -> IO ByteString
 readSource (Source ref func) = do
-    bs <- liftIO $ readIORef ref
+    bs <- readIORef ref
     if S.null bs
         then func
         else do
-            liftIO $ writeIORef ref S.empty
+            writeIORef ref S.empty
             return bs
 
 -- | Read from a Source, ignoring any leftovers.
-readSource' :: Source -> Fiber ByteString
+readSource' :: Source -> IO ByteString
 readSource' (Source _ func) = func
 
-leftoverSource :: Source -> ByteString -> Fiber ()
-leftoverSource (Source ref _) bs = liftIO $ writeIORef ref bs
+leftoverSource :: Source -> ByteString -> IO ()
+leftoverSource (Source ref _) bs = writeIORef ref bs
 
-readLeftoverSource :: Source -> Fiber ByteString
-readLeftoverSource (Source ref _) = liftIO $ readIORef ref
+readLeftoverSource :: Source -> IO ByteString
+readLeftoverSource (Source ref _) = readIORef ref
 
 ----------------------------------------------------------------
 

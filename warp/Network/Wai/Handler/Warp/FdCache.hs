@@ -21,23 +21,22 @@ module Network.Wai.Handler.Warp.FdCache (
 -- import System.Posix.IO (openFd, OpenFileFlags(..), defaultFileFlags, OpenMode(ReadOnly), closeFd, FdOption(CloseOnExec), setFdOption)
 -- #endif
 import System.Posix.Types (Fd)
-import Control.Concurrent.Fiber
 
 ----------------------------------------------------------------
 
 type Hash = Int
 
 -- | An action to activate a Fd cache entry.
-type Refresh = Fiber ()
+type Refresh = IO ()
 
-getFdNothing :: Hash -> FilePath -> Fiber (Maybe Fd, Refresh)
+getFdNothing :: Hash -> FilePath -> IO (Maybe Fd, Refresh)
 getFdNothing _ _ = return (Nothing, return ())
 
 ----------------------------------------------------------------
 
 -- | Creating 'MutableFdCache' and executing the action in the second
 --   argument. The first argument is a cache duration in second.
-withFdCache :: Int -> ((Hash -> FilePath -> Fiber (Maybe Fd, Refresh)) -> Fiber a) -> Fiber a
+withFdCache :: Int -> ((Hash -> FilePath -> IO (Maybe Fd, Refresh)) -> IO a) -> IO a
 -- #ifdef WINDOWS
 withFdCache _        action = action getFdNothing
 -- #else

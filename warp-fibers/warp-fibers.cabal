@@ -1,4 +1,4 @@
-Name:                warp
+Name:                warp-fibers
 Version:             3.2.22
 Synopsis:            A fast, light-weight web server for WAI applications.
 License:             MIT
@@ -55,8 +55,8 @@ Library
                    , word8
                    , hashable
                    , http-date
-                   , eta-fibers-dev
                    , fibers-network
+                   , eta-fibers-dev
   if impl(eta >= 0.0.9.7)
      build-depends:    eta-java-interop
      cpp-options:      -DINTEROP
@@ -104,7 +104,8 @@ Library
                      Network.Wai.Handler.Warp.Types
                      Network.Wai.Handler.Warp.Windows
                      Network.Wai.Handler.Warp.WithApplication
-                     Paths_warp
+                     Network.Wai.Handler.Warp.Fiber
+                     Paths_warp_fibers
   Ghc-Options:       -Wall
 
   if flag(warp-debug)
@@ -176,7 +177,7 @@ Test-Suite spec
                      Network.Wai.Handler.Warp.Timeout
                      Network.Wai.Handler.Warp.Types
                      Network.Wai.Handler.Warp.WithApplication
-                     Paths_warp
+                     Paths_warp_fibers
 
     Hs-Source-Dirs:  test, .
     Type:            exitcode-stdio-1.0

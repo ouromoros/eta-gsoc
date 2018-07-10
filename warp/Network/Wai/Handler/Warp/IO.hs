@@ -10,17 +10,17 @@ import Network.Wai.Handler.Warp.Buffer
 import Network.Wai.Handler.Warp.Imports
 import Network.Wai.Handler.Warp.Types
 
-toBufIOWith :: Buffer -> BufSize -> (ByteString -> Fiber ()) -> Builder -> Fiber ()
+toBufIOWith :: Buffer -> BufSize -> (ByteString -> IO ()) -> Builder -> IO ()
 toBufIOWith buf !size io builder = loop firstWriter
   where
     firstWriter = runBuilder builder
     runIO len = bufferIO buf len io
     loop writer = do
-        (len, signal) <- liftIO $ writer buf size
+        (len, signal) <- writer buf size
         case signal of
              Done -> runIO len
              More minSize next
-               | size < minSize -> liftIO $ error "toBufIOWith: BufferFull: minSize"
+               | size < minSize -> error "toBufIOWith: BufferFull: minSize"
                | otherwise      -> do
                    runIO len
                    loop next

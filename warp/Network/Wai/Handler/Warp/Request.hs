@@ -12,7 +12,7 @@ module Network.Wai.Handler.Warp.Request (
   , NoKeepAliveRequest (..)
   ) where
 
-import qualified Control.Concurrent.Fiber as Conc (yield)
+import qualified Control.Concurrent as Conc (yield)
 import Control.Exception (throwIO, Exception)
 import Data.Array ((!))
 import qualified Data.ByteString as S
@@ -22,8 +22,7 @@ import qualified Data.IORef as I
 import Data.Typeable (Typeable)
 import qualified Data.Vault.Lazy as Vault
 import qualified Network.HTTP.Types as H
--- import Network.Socket (SockAddr)
-import Control.Concurrent.Fiber.Network (SockAddr)
+import Network.Socket (SockAddr)
 import Network.Wai
 import qualified Network.Wai.Handler.Warp.Timeout as Timeout
 import Network.Wai.Handler.Warp.Types
@@ -56,10 +55,10 @@ recvRequest :: Bool -- ^ first request on this connection?
             -> InternalInfo1
             -> SockAddr -- ^ Peer's address.
             -> Source -- ^ Where HTTP request comes from.
-            -> Fiber (Request
+            -> IO (Request
                   ,Maybe (I.IORef Int)
                   ,IndexedHeader
-                  ,Fiber ByteString
+                  ,IO ByteString
                   ,InternalInfo) -- ^
             -- 'Request' passed to 'Application',
             -- how many bytes remain to be consumed, if known
@@ -96,7 +95,7 @@ recvRequest firstRequest settings conn ii1 addr src = do
           , requestHeaders    = hdr
           , isSecure          = False
           , remoteHost        = addr
-          , requestBody       = fiber rbody'
+          , requestBody       = rbody'
           , vault             = vaultValue
           , requestBodyLength = bodyLength
           , requestHeaderHost      = idxhdr ! fromEnum ReqHost
@@ -108,7 +107,7 @@ recvRequest firstRequest settings conn ii1 addr src = do
 
 ----------------------------------------------------------------
 
-headerLines :: Bool -> Source -> Fiber [ByteString]
+headerLines :: Bool -> Source -> IO [ByteString]
 headerLines firstRequest src = do
     bs <- readSource src
     if S.null bs
@@ -116,7 +115,7 @@ headerLines firstRequest src = do
         -- get the second or later request, we don't want to treat the
         -- lack of data as a real exception. See the http1 function in
         -- the Run module for more details.
-        then liftIO $ if firstRequest then throwIO ConnectionClosedByPeer else throwIO NoKeepAliveRequest
+        then if firstRequest then throwIO ConnectionClosedByPeer else throwIO NoKeepAliveRequest
         else push src (THStatus 0 id id) bs
 
 data NoKeepAliveRequest = NoKeepAliveRequest
@@ -128,7 +127,7 @@ instance Exception NoKeepAliveRequest
 handleExpect :: Connection
              -> H.HttpVersion
              -> Maybe HeaderValue
-             -> Fiber ()
+             -> IO ()
 handleExpect conn ver (Just "100-continue") = do
     connSendAll conn continue
     Conc.yield
@@ -143,7 +142,7 @@ handleExpect _    _   _                     = return ()
 bodyAndSource :: Source
               -> Maybe HeaderValue -- ^ content length
               -> Maybe HeaderValue -- ^ transfer-encoding
-              -> Fiber (Fiber ByteString
+              -> IO (IO ByteString
                     ,Maybe (I.IORef Int)
                     ,RequestBodyLength
                     )
@@ -171,11 +170,11 @@ isChunked _         = False
 
 timeoutBody :: Maybe (I.IORef Int) -- ^ remaining
             -> Timeout.Handle
-            -> Fiber ByteString
-            -> Fiber ()
-            -> Fiber (Fiber ByteString)
+            -> IO ByteString
+            -> IO ()
+            -> IO (IO ByteString)
 timeoutBody remainingRef timeoutHandle rbody handle100Continue = do
-    isFirstRef <- liftIO $ I.newIORef True
+    isFirstRef <- I.newIORef True
 
     let checkEmpty =
             case remainingRef of
@@ -183,11 +182,11 @@ timeoutBody remainingRef timeoutHandle rbody handle100Continue = do
                 Just ref -> \bs -> if S.null bs
                     then return True
                     else do
-                        x <- liftIO $ I.readIORef ref
+                        x <- I.readIORef ref
                         return $! x <= 0
 
     return $ do
-        isFirst <- liftIO $ I.readIORef isFirstRef
+        isFirst <- I.readIORef isFirstRef
 
         when isFirst $ do
             -- Only check if we need to produce the 100 Continue status
@@ -197,7 +196,7 @@ timeoutBody remainingRef timeoutHandle rbody handle100Continue = do
             -- headers. Now we need to resume it to avoid a slowloris
             -- attack during request body sending.
             Timeout.resume timeoutHandle
-            liftIO $ I.writeIORef isFirstRef False
+            I.writeIORef isFirstRef False
 
         bs <- rbody
 
@@ -227,10 +226,10 @@ close :: Sink ByteString IO a
 close = throwIO IncompleteHeaders
 -}
 
-push :: Source -> THStatus -> ByteString -> Fiber [ByteString]
+push :: Source -> THStatus -> ByteString -> IO [ByteString]
 push src (THStatus len lines prepend) bs'
         -- Too many bytes
-        | len > maxTotalHeaderLength = liftIO $ throwIO OverLargeHeader
+        | len > maxTotalHeaderLength = throwIO OverLargeHeader
         | otherwise = push' mnl
   where
     bs = prepend bs'
@@ -250,12 +249,12 @@ push src (THStatus len lines prepend) bs'
             Just (nl, False)
 
     {-# INLINE push' #-}
-    push' :: Maybe (Int, Bool) -> Fiber [ByteString]
+    push' :: Maybe (Int, Bool) -> IO [ByteString]
     -- No newline find in this chunk.  Add it to the prepend,
     -- update the length, and continue processing.
     push' Nothing = do
         bst <- readSource' src
-        when (S.null bst) (liftIO $ throwIO IncompleteHeaders)
+        when (S.null bst) $ throwIO IncompleteHeaders
         push src status bst
       where
         len' = len + bsLen
@@ -285,7 +284,7 @@ push src (THStatus len lines prepend) bs'
                            else do
                              -- no more bytes in this chunk, ask for more
                              bst <- readSource' src
-                             liftIO $ when (S.null bs) $ throwIO IncompleteHeaders
+                             when (S.null bs) $ throwIO IncompleteHeaders
                              push src status bst
       where
         start = end + 1 -- start of next chunk
@@ -297,10 +296,10 @@ checkCR bs pos = if pos > 0 && 13 == S.index bs p then p else pos -- 13 is CR
   where
     !p = pos - 1
 
-pauseTimeoutKey :: Vault.Key (Fiber ())
+pauseTimeoutKey :: Vault.Key (IO ())
 pauseTimeoutKey = unsafePerformIO Vault.newKey
 {-# NOINLINE pauseTimeoutKey #-}
 
-getFileInfoKey :: Vault.Key (FilePath -> Fiber FileInfo)
+getFileInfoKey :: Vault.Key (FilePath -> IO FileInfo)
 getFileInfoKey = unsafePerformIO Vault.newKey
 {-# NOINLINE getFileInfoKey #-}

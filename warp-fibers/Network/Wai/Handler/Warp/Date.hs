@@ -16,25 +16,27 @@ import Foreign.C.Types (CTime(..))
 -- #else
 -- import System.Posix (epochTime)
 -- #endif
+import Control.Concurrent.Fiber
+import Network.Wai.Handler.Warp.Fiber
 
 -- | The type of the Date header value.
 type GMTDate = ByteString
 
 -- | Creating 'DateCache' and executing the action.
-withDateCache :: (IO GMTDate -> IO a) -> IO a
+withDateCache :: (Fiber GMTDate -> Fiber a) -> Fiber a
 withDateCache action = initialize >>= action
 
-initialize :: IO (IO GMTDate)
-initialize = mkAutoUpdate defaultUpdateSettings {
-                            updateAction = formatHTTPDate <$> getCurrentHTTPDate
-                          }
+initialize :: Fiber (Fiber GMTDate)
+initialize = liftIO $ liftIO <$> (mkAutoUpdate defaultUpdateSettings {
+                            updateAction = fiber $ formatHTTPDate <$> getCurrentHTTPDate
+                          })
 
 -- #ifdef WINDOWS
 uToH :: UTCTime -> HTTPDate
 uToH = epochTimeToHTTPDate . CTime . truncate . utcTimeToPOSIXSeconds
 
-getCurrentHTTPDate :: IO HTTPDate
-getCurrentHTTPDate =  uToH <$> getCurrentTime
+getCurrentHTTPDate :: Fiber HTTPDate
+getCurrentHTTPDate =  liftIO $ uToH <$> getCurrentTime
 -- #else
 -- getCurrentHTTPDate :: IO HTTPDate
 -- getCurrentHTTPDate = epochTimeToHTTPDate <$> epochTime

@@ -39,7 +39,7 @@ addNecessaryHeaders :: Context
                     -> Rspn
                     -> InternalInfo
                     -> S.Settings
-                    -> Fiber TokenHeaderList
+                    -> IO TokenHeaderList
 addNecessaryHeaders Context{..} rspn ii settings = do
     date <- getDate ii
     let !s = rspnStatus rspn
@@ -60,20 +60,20 @@ strategy = EncodeStrategy { compressionAlgo = Linear, useHuffman = False }
 -- So, we don't need to split it.
 hpackEncodeHeader :: Context -> Buffer -> BufSize
                   -> TokenHeaderList
-                  -> Fiber (TokenHeaderList, Int)
+                  -> IO (TokenHeaderList, Int)
 hpackEncodeHeader Context{..} buf siz ths =
-    liftIO $ encodeTokenHeader buf siz strategy True encodeDynamicTable ths
+    encodeTokenHeader buf siz strategy True encodeDynamicTable ths
 
 hpackEncodeHeaderLoop :: Context -> Buffer -> BufSize
                       -> TokenHeaderList
-                      -> Fiber (TokenHeaderList, Int)
+                      -> IO (TokenHeaderList, Int)
 hpackEncodeHeaderLoop Context{..} buf siz hs =
-    liftIO $ encodeTokenHeader buf siz strategy False encodeDynamicTable hs
+    encodeTokenHeader buf siz strategy False encodeDynamicTable hs
 
 ----------------------------------------------------------------
 
-hpackDecodeHeader :: HeaderBlockFragment -> Context -> Fiber (TokenHeaderList, ValueTable)
-hpackDecodeHeader hdrblk Context{..} = liftIO $ do
+hpackDecodeHeader :: HeaderBlockFragment -> Context -> IO (TokenHeaderList, ValueTable)
+hpackDecodeHeader hdrblk Context{..} = do
     tbl@(_,vt) <- decodeTokenHeader decodeDynamicTable hdrblk `E.catch` handl
     unless (checkRequestHeader vt) $
         E.throwIO $ ConnectionError ProtocolError "the header key is illegal"

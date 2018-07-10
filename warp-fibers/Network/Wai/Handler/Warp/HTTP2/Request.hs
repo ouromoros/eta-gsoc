@@ -16,7 +16,8 @@ import qualified Data.Vault.Lazy as Vault
 import Network.HPACK
 import Network.HPACK.Token
 import qualified Network.HTTP.Types as H
-import Network.Socket (SockAddr)
+-- import Network.Socket (SockAddr)
+import Control.Concurrent.Fiber.Network (SockAddr)
 import Network.Wai
 import Network.Wai.Internal (Request(..))
 import System.IO.Unsafe (unsafePerformIO)
@@ -28,11 +29,12 @@ import Network.Wai.Handler.Warp.Request (getFileInfoKey)
 import qualified Network.Wai.Handler.Warp.Settings as S (Settings, settingsNoParsePath)
 import Network.Wai.Handler.Warp.Types
 
-type MkReq = (TokenHeaderList,ValueTable) -> (Maybe Int,IO ByteString) -> IO (Request,InternalInfo)
+type MkReq = (TokenHeaderList,ValueTable) -> (Maybe Int, Fiber ByteString) -> Fiber (Request,InternalInfo)
+
 
 mkRequest :: InternalInfo1 -> S.Settings -> SockAddr -> MkReq
 mkRequest ii1 settings addr (reqths,reqvt) (bodylen,body) = do
-    ref <- newIORef Nothing
+    ref <- liftIO $ newIORef Nothing
     mkRequest' ii1 settings addr ref (reqths,reqvt) (bodylen,body)
 
 mkRequest' :: InternalInfo1 -> S.Settings -> SockAddr
@@ -50,7 +52,7 @@ mkRequest' ii1 settings addr ref (reqths,reqvt) (bodylen,body) = return (req,ii)
       , requestHeaders = headers
       , isSecure = True
       , remoteHost = addr
-      , requestBody = body
+      , requestBody = fiber body
       , vault = vaultValue
       , requestBodyLength = maybe ChunkedBody (KnownLength . fromIntegral) bodylen
       , requestHeaderHost      = mHost <|> mAuth
@@ -81,12 +83,12 @@ mkRequest' ii1 settings addr ref (reqths,reqvt) (bodylen,body) = return (req,ii)
     -- timeout handler must be overwritten with worker's one.
     !ii = toInternalInfo ii1 h
     !vaultValue = Vault.insert getFileInfoKey (getFileInfo ii)
-                $ Vault.insert getHTTP2DataKey (readIORef ref)
-                $ Vault.insert setHTTP2DataKey (writeIORef ref)
-                $ Vault.insert modifyHTTP2DataKey (modifyIORef' ref)
+                $ Vault.insert getHTTP2DataKey (liftIO $ readIORef ref)
+                $ Vault.insert setHTTP2DataKey (liftIO . writeIORef ref)
+                $ Vault.insert modifyHTTP2DataKey (liftIO . modifyIORef' ref)
                   Vault.empty
 
-getHTTP2DataKey :: Vault.Key (IO (Maybe HTTP2Data))
+getHTTP2DataKey :: Vault.Key (Fiber (Maybe HTTP2Data))
 getHTTP2DataKey = unsafePerformIO Vault.newKey
 {-# NOINLINE getHTTP2DataKey #-}
 
@@ -94,12 +96,12 @@ getHTTP2DataKey = unsafePerformIO Vault.newKey
 --   Warp uses this to receive 'HTTP2Data' from 'Middleware'.
 --
 --   Since: 3.2.7
-getHTTP2Data :: Request -> IO (Maybe HTTP2Data)
+getHTTP2Data :: Request -> Fiber (Maybe HTTP2Data)
 getHTTP2Data req = case Vault.lookup getHTTP2DataKey (vault req) of
   Nothing     -> return Nothing
   Just getter -> getter
 
-setHTTP2DataKey :: Vault.Key (Maybe HTTP2Data -> IO ())
+setHTTP2DataKey :: Vault.Key (Maybe HTTP2Data -> Fiber ())
 setHTTP2DataKey = unsafePerformIO Vault.newKey
 {-# NOINLINE setHTTP2DataKey #-}
 
@@ -107,12 +109,12 @@ setHTTP2DataKey = unsafePerformIO Vault.newKey
 --   'Application' or 'Middleware' should use this.
 --
 --   Since: 3.2.7
-setHTTP2Data :: Request -> Maybe HTTP2Data -> IO ()
+setHTTP2Data :: Request -> Maybe HTTP2Data -> Fiber ()
 setHTTP2Data req mh2d = case Vault.lookup setHTTP2DataKey (vault req) of
   Nothing     -> return ()
   Just setter -> setter mh2d
 
-modifyHTTP2DataKey :: Vault.Key ((Maybe HTTP2Data -> Maybe HTTP2Data) -> IO ())
+modifyHTTP2DataKey :: Vault.Key ((Maybe HTTP2Data -> Maybe HTTP2Data) -> Fiber ())
 modifyHTTP2DataKey = unsafePerformIO Vault.newKey
 {-# NOINLINE modifyHTTP2DataKey #-}
 
@@ -120,7 +122,7 @@ modifyHTTP2DataKey = unsafePerformIO Vault.newKey
 --   'Application' or 'Middleware' should use this.
 --
 --   Since: 3.2.8
-modifyHTTP2Data :: Request -> (Maybe HTTP2Data -> Maybe HTTP2Data) -> IO ()
+modifyHTTP2Data :: Request -> (Maybe HTTP2Data -> Maybe HTTP2Data) -> Fiber ()
 modifyHTTP2Data req func = case Vault.lookup modifyHTTP2DataKey (vault req) of
   Nothing     -> return ()
   Just modify -> modify func

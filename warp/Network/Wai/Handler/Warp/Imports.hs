@@ -11,8 +11,6 @@ module Network.Wai.Handler.Warp.Imports (
   , module Data.Word
   , module Data.Maybe
   , module Numeric
-  , module Control.Concurrent.Fiber
-  , module Network.Wai.Handler.Warp.Fiber
   ) where
 
 import Control.Applicative
@@ -27,5 +25,3 @@ import Data.Monoid
 import Data.Ord
 import Data.Word
 import Numeric
-import Control.Concurrent.Fiber
-import Network.Wai.Handler.Warp.Fiber

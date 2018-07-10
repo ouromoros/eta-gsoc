@@ -50,25 +50,25 @@ type Responder = InternalInfo
               -> Stream
               -> Request
               -> Response
-              -> Fiber ResponseReceived
+              -> IO ResponseReceived
 
 pushStream :: Context -> S.Settings
            -> StreamId -> ValueTable -> Request -> InternalInfo
            -> Maybe HTTP2Data
-           -> Fiber (OutputType, Fiber ())
+           -> IO (OutputType, IO ())
 pushStream _ _ _ _ _ _ Nothing = return (ORspn, return ())
 pushStream ctx@Context{http2settings,outputQ,streamTable}
            settings pid reqvt req ii (Just h2d)
   | len == 0 = return (ORspn, return ())
   | otherwise = do
-        pushable <- liftIO $ enablePush <$> readIORef http2settings
+        pushable <- enablePush <$> readIORef http2settings
         if pushable then do
-            tvar <- liftIO $ newTVarIO 0
+            tvar <- newTVarIO 0
             lim <- push tvar pps0 0
             if lim == 0 then
               return (ORspn, return ())
              else
-              return (OWait, liftIO $ waiter lim tvar)
+              return (OWait, waiter lim tvar)
           else
             return (ORspn, return ())
   where
@@ -83,18 +83,18 @@ pushStream ctx@Context{http2settings,outputQ,streamTable}
     push _ [] !n = return (n :: Int)
     push tvar (pp:pps) !n = do
         let !file = promisedFile pp
-        efinfo <- liftIO $ E.try $ fiber $ getFileInfo ii file
+        efinfo <- E.try $ getFileInfo ii file
         case efinfo of
           Left (_ex :: E.IOException) -> push tvar pps n
           Right (FileInfo _ size _ date) -> do
-              ws <- liftIO $ initialWindowSize <$> readIORef http2settings
+              ws <- initialWindowSize <$> readIORef http2settings
               let !w = promisedWeight pp
                   !pri = defaultPriority { weight = w }
                   !pre = toPrecedence pri
               strm <- newPushStream ctx ws pre
               let !sid = streamNumber strm
               insert streamTable sid strm
-              (ths0, vt) <- liftIO $ toHeaderTable (promisedResponseHeaders pp)
+              (ths0, vt) <- toHeaderTable (promisedResponseHeaders pp)
               let !scheme = fromJust $ getHeaderValue tokenScheme reqvt
                   -- fixme: this value can be Nothing
                   !auth   = fromJust (getHeaderValue tokenHost reqvt
@@ -110,7 +110,7 @@ pushStream ctx@Context{http2settings,outputQ,streamTable}
                          addContentHeadersForFilePart ths0 part
               pushLogger req path size
               let !ot = OPush promisedRequest pid
-                  !out = Output strm rsp ii (liftIO $ increment tvar) h2data ot
+                  !out = Output strm rsp ii (increment tvar) h2data ot
               enqueueOutput outputQ out
               push tvar pps (n + 1)
 
@@ -152,7 +152,7 @@ response settings ctx@Context{outputQ} mgr ii reqvt tconf strm req rsp = case rs
     -- log message are written here even the window size of streams
     -- is 0.
 
-    responseNoBody s hs0 = (liftIO $ toHeaderTable hs0) >>= responseNoBody' s
+    responseNoBody s hs0 = toHeaderTable hs0 >>= responseNoBody' s
 
     responseNoBody' s tbl = do
         logger req s Nothing
@@ -165,24 +165,24 @@ response settings ctx@Context{outputQ} mgr ii reqvt tconf strm req rsp = case rs
     responseBuilderBody s hs0 bdy (rspnOrWait,tell) = do
         logger req s Nothing
         setThreadContinue tconf True
-        tbl <- liftIO $ toHeaderTable hs0
+        tbl <- toHeaderTable hs0
         let !rspn = RspnBuilder s tbl bdy
             !out = Output strm rspn ii tell h2data rspnOrWait
         enqueueOutput outputQ out
         return ResponseReceived
 
     responseFileXXX _ hs0 path Nothing aux = do
-        efinfo <- liftIO $ E.try $ fiber $ getFileInfo ii path
+        efinfo <- E.try $ getFileInfo ii path
         case efinfo of
             Left (_ex :: E.IOException) -> response404 hs0
             Right finfo -> do
-                (rspths0,vt) <- liftIO $ toHeaderTable hs0
+                (rspths0,vt) <- toHeaderTable hs0
                 case conditionalRequest finfo rspths0 reqvt of
                     WithoutBody s             -> responseNoBody s hs0
                     WithBody s rspths beg len -> responseFile2XX s (rspths,vt) path (Just (FilePart beg len (fileInfoSize finfo))) aux
 
     responseFileXXX s0 hs0 path mpart aux = do
-        tbl <- liftIO $ toHeaderTable hs0
+        tbl <- toHeaderTable hs0
         responseFile2XX s0 tbl path mpart aux
 
     responseFile2XX s tbl path mpart (rspnOrWait,tell)
@@ -216,46 +216,46 @@ response settings ctx@Context{outputQ} mgr ii reqvt tconf strm req rsp = case rs
         setThreadContinue tconf False
         -- Since 'StreamingBody' is loop, we cannot control it.
         -- So, let's serialize 'Builder' with a designated queue.
-        tbq <- liftIO $ newTBQueueIO 10 -- fixme: hard coding: 10
-        tbl <- liftIO $ toHeaderTable hs0
+        tbq <- newTBQueueIO 10 -- fixme: hard coding: 10
+        tbl <- toHeaderTable hs0
         let !rspn = RspnStreaming s0 tbl tbq
             !out = Output strm rspn ii tell h2data rspnOrWait
         enqueueOutput outputQ out
         let push b = do
               T.pause th
-              liftIO $ atomically $ writeTBQueue tbq (SBuilder b)
+              atomically $ writeTBQueue tbq (SBuilder b)
               T.resume th
             flush  = atomically $ writeTBQueue tbq SFlush
-        _ <- liftIO $ strmbdy (fiber . push) flush
-        liftIO $ atomically $ writeTBQueue tbq SFinish
+        _ <- strmbdy push flush
+        atomically $ writeTBQueue tbq SFinish
         deleteMyId mgr
         return ResponseReceived
 
-worker :: Context -> S.Settings -> Application -> Responder -> T.Manager -> Fiber ()
+worker :: Context -> S.Settings -> Application -> Responder -> T.Manager -> IO ()
 worker ctx@Context{inputQ,controlQ} set app responder tm = do
     sinfo <- newStreamInfo
     tcont <- newThreadContinue
     let timeoutAction = return () -- cannot close the shared connection
-    liftIO $ E.bracket (fiber $ T.registerKillThread tm timeoutAction) (fiber . T.cancel) (fiber . go sinfo tcont)
+    E.bracket (T.registerKillThread tm timeoutAction) T.cancel $ go sinfo tcont
   where
     go sinfo tcont th = do
         setThreadContinue tcont True
-        ex <- liftIO $ E.try $ fiber $ do
+        ex <- E.try $ do
             T.pause th
-            inp@(Input strm req reqvt ii) <- liftIO $ atomically $ readTQueue inputQ
+            inp@(Input strm req reqvt ii) <- atomically $ readTQueue inputQ
             setStreamInfo sinfo inp
             T.resume th
             T.tickle th
             let !ii' = ii { threadHandle = th }
-                !body = liftIO $ requestBody req
+                !body = requestBody req
                 !body' = do
                     T.pause th
                     bs <- body
                     T.resume th
                     return bs
                 !vaultValue = Vault.insert pauseTimeoutKey (Timeout.pause th) $ vault req
-                !req' = req { vault = vaultValue, requestBody = (fiber body') }
-            liftIO $ app req' (fiber . responder ii' reqvt tcont strm req')
+                !req' = req { vault = vaultValue, requestBody = body' }
+            app req' $ responder ii' reqvt tcont strm req'
         cont1 <- case ex of
             Right ResponseReceived -> return True
             Left  e@(SomeException _)
@@ -295,16 +295,16 @@ worker ctx@Context{inputQ,controlQ} set app responder tm = do
 newtype ThreadContinue = ThreadContinue (IORef Bool)
 
 {-# INLINE newThreadContinue #-}
-newThreadContinue :: Fiber ThreadContinue
-newThreadContinue = liftIO $ ThreadContinue <$> newIORef True
+newThreadContinue :: IO ThreadContinue
+newThreadContinue = ThreadContinue <$> newIORef True
 
 {-# INLINE setThreadContinue #-}
-setThreadContinue :: ThreadContinue -> Bool -> Fiber ()
-setThreadContinue (ThreadContinue ref) x = liftIO $ writeIORef ref x
+setThreadContinue :: ThreadContinue -> Bool -> IO ()
+setThreadContinue (ThreadContinue ref) x = writeIORef ref x
 
 {-# INLINE getThreadContinue #-}
-getThreadContinue :: ThreadContinue -> Fiber Bool
-getThreadContinue (ThreadContinue ref) = liftIO $ readIORef ref
+getThreadContinue :: ThreadContinue -> IO Bool
+getThreadContinue (ThreadContinue ref) = readIORef ref
 
 ----------------------------------------------------------------
 
@@ -312,17 +312,17 @@ getThreadContinue (ThreadContinue ref) = liftIO $ readIORef ref
 newtype StreamInfo = StreamInfo (IORef (Maybe Input))
 
 {-# INLINE newStreamInfo #-}
-newStreamInfo :: Fiber StreamInfo
-newStreamInfo = liftIO $ StreamInfo <$> newIORef Nothing
+newStreamInfo :: IO StreamInfo
+newStreamInfo = StreamInfo <$> newIORef Nothing
 
 {-# INLINE clearStreamInfo #-}
-clearStreamInfo :: StreamInfo -> Fiber ()
-clearStreamInfo (StreamInfo ref) = liftIO $ writeIORef ref Nothing
+clearStreamInfo :: StreamInfo -> IO ()
+clearStreamInfo (StreamInfo ref) = writeIORef ref Nothing
 
 {-# INLINE setStreamInfo #-}
-setStreamInfo :: StreamInfo -> Input -> Fiber ()
-setStreamInfo (StreamInfo ref) inp = liftIO $ writeIORef ref $ Just inp
+setStreamInfo :: StreamInfo -> Input -> IO ()
+setStreamInfo (StreamInfo ref) inp = writeIORef ref $ Just inp
 
 {-# INLINE getStreamInfo #-}
-getStreamInfo :: StreamInfo -> Fiber (Maybe Input)
-getStreamInfo (StreamInfo ref) = liftIO $ readIORef ref
+getStreamInfo :: StreamInfo -> IO (Maybe Input)
+getStreamInfo (StreamInfo ref) = readIORef ref

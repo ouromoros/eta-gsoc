@@ -90,7 +90,7 @@ merge m1 m2 = I.unionWith (<>) m1 m2
 
 ----------------------------------------------------------------
 
-prune :: (a -> Fiber Bool) -> NonEmpty a -> Fiber (Maybe (NonEmpty a))
+prune :: (a -> IO Bool) -> NonEmpty a -> IO (Maybe (NonEmpty a))
 prune act nxs = NE.nonEmpty <$> go (NE.toList nxs)
   where
     go []     = return []
