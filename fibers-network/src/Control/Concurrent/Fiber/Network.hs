@@ -21,6 +21,8 @@ module Control.Concurrent.Fiber.Network
   ,defaultProtocol
   ,getAddrInfo
 
+  ,fdSocket
+  ,mkSocket
   ,withSocketsDo
   ,withSockAddr
   ,getSockAddr
@@ -61,6 +63,8 @@ module Control.Concurrent.Fiber.Network
   ,bindPortTCP
   ,bindPortGen
   ,bindPortGenEx
+  ,bindRandomPortGen
+  ,bindRandomPortTCP
     )
   where
 
@@ -91,7 +95,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString.Internal (createAndTrim)
 import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
 import Control.Monad
-import Control.Exception (throwIO, catch, IOException, bracketOnError)
+import Control.Exception (throwIO, catch, IOException, bracketOnError, try)
 import System.IO.Error 
 import GHC.Conc (closeFdWith) -- blocking?
 import GHC.IO.Exception
@@ -536,7 +540,32 @@ bindPortGenEx sockOpts sockettype p s = do
           )
     liftIO $ tryAddrs addrs'
 
-#if !defined(mingw32_HOST_OS)
+bindRandomPortGen :: SocketType -> HostPreference -> Fiber (Int, Socket)
+bindRandomPortGen sockettype s =
+    loop (30 :: Int)
+  where
+    loop cnt = do
+        port <- liftIO $ DSN.getUnassignedPort
+        esocket <- liftIO $ try $ fiber $ bindPortGen sockettype port s
+        case esocket :: Either IOException Socket of
+            Left e
+                | cnt <= 1 -> error $ concat
+                    [ "Data.Streaming.Network.bindRandomPortGen: Could not get port. Last attempted: "
+                    , show port
+                    , ". Exception was: "
+                    , show e
+                    ]
+                | otherwise -> do
+                    -- Not sure what it does and probably safe without it
+                    -- liftIO $ DSN.skipUnassigned 50
+                    loop $! cnt - 1
+            Right socket -> return (port, socket)
+
+bindRandomPortTCP :: HostPreference -> Fiber (Int, Socket)
+bindRandomPortTCP s = do
+    (port, sock) <- bindRandomPortGen (ServerSocket Stream) s
+    listen sock (max 2048 NS.maxListenQueue)
+    return (port, sock)
 
 readRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> CSize -> Fiber Int
 readRawBufferPtr loc !fd !buf !off !len = unsafe_read
@@ -553,7 +582,3 @@ writeRawBufferPtr loc !fd !buf !off !len = unsafe_write
                       throwErrnoIfMinus1RetryMayBlock loc call
                         (threadWaitWrite (fdChannel fd))
     unsafe_write  = do_write (c_write (fdChannel fd) (buf `plusPtr` off) len)
-
-#else
-  {- Implement for windows -}
-#endif
