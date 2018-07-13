@@ -21,6 +21,7 @@ import Network.Wai
 import qualified Paths_warp_fibers
 import System.IO (stderr)
 import System.IO.Error (ioeGetErrorType)
+import GHC.IO (unsafeUnmask)
 
 import Network.Wai.Handler.Warp.Imports
 import Network.Wai.Handler.Warp.Timeout
@@ -134,7 +135,7 @@ defaultSettings = Settings
     , settingsFdCacheDuration = 0
     , settingsFileInfoCacheDuration = 0
     , settingsBeforeMainLoop = return ()
-    , settingsFork = undefined -- forkFiberWithUnmask
+    , settingsFork = forkFiberWithUnmask
     , settingsNoParsePath = False
     , settingsInstallShutdownHandler = const $ return ()
     , settingsServerName = C8.pack $ "Warp/" ++ showVersion Paths_warp_fibers.version
@@ -187,3 +188,7 @@ exceptionResponseForDebug e =
     responseBuilder H.internalServerError500
                     [(H.hContentType, "text/plain; charset=utf-8")]
                     $ byteString . C8.pack $ "Exception: " ++ show e
+
+forkFiberWithUnmask :: ((forall a . Fiber a -> Fiber a) -> Fiber ()) -> IO ()
+forkFiberWithUnmask f = void $ forkFiber (f unmaskFiber)
+  where unmaskFiber = liftIO . unsafeUnmask . fiber

@@ -19,7 +19,7 @@ import Foreign.Ptr (Ptr, castPtr, plusPtr)
 -- import GHC.Conc (threadWaitRead)
 import Control.Concurrent.Fiber.Network.Internal (threadWaitRead)
 -- import Network.Socket (Socket, fdSocket)
-import Control.Concurrent.Fiber.Network (Socket)
+import Control.Concurrent.Fiber.Network (Socket, fdSocket)
 
 import Network.Wai.Handler.Warp.Buffer
 import Network.Wai.Handler.Warp.Imports
@@ -33,8 +33,6 @@ import Control.Concurrent.Fiber.Network (readRawBufferPtr)
 -- #endif
 
 ----------------------------------------------------------------
-
-fdSocket = undefined
 
 makeReceiveN :: ByteString -> Recv -> RecvBuf -> Fiber (BufSize -> Fiber ByteString)
 makeReceiveN bs0 recv recvBuf = do

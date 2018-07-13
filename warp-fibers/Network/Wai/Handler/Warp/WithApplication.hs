@@ -23,10 +23,6 @@ import           Network.Wai.Handler.Warp.Types
 import           Network.Wai.Handler.Warp.Fiber
 import           Control.Concurrent.Fiber
 
-bindRandomPortTCP = undefined
-readMVar :: MVar a -> Fiber a
-readMVar = undefined
-
 -- | Runs the given 'Application' on a free port. Passes the port to the given
 -- operation and executes it, while the 'Application' is running. Shuts down the
 -- server before returning.
@@ -105,7 +101,7 @@ mkWaiter = do
 --
 -- @since 3.2.4
 openFreePort :: IO (Port, Socket)
-openFreePort = bindRandomPortTCP "127.0.0.1"
+openFreePort = fiber $ bindRandomPortTCP "127.0.0.1"
 
 -- | Like 'openFreePort' but closes the socket before exiting.
 withFreePort :: ((Port, Socket) -> IO a) -> IO a
