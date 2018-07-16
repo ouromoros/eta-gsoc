@@ -483,6 +483,7 @@ defaultSocketOptions :: SocketType -> [(NS.SocketOption, Int)]
 defaultSocketOptions sockettype =
     case sockettype of
         NS.Datagram -> [(NS.ReuseAddr,1)]
+        ServerSocket _ -> [(NS.ReuseAddr,1)]
         _           -> [(NS.NoDelay,1), (NS.ReuseAddr,1)]
 
 bindPortTCP :: Int -> HostPreference -> Fiber Socket
