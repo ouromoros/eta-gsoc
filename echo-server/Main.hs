@@ -11,11 +11,11 @@ import Control.Concurrent.Fiber.Network.Internal (fiber)
 
 -- This mesteriously would throw `ClosedByInterruptException`
 -- So maybe there are still some problems with concurrency
-main = forkFiber main' >> loop
-  where loop = do
-          threadDelay 1000
-          loop
--- main = fiber main'
+-- main = forkFiber main' >> loop
+--   where loop = do
+--           threadDelay 1000
+--           loop
+main = fiber main'
 
 main' :: Fiber ()
 main' = withSocketsDo $ do
