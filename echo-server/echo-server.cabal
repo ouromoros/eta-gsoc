@@ -23,5 +23,6 @@ executable echo-server
                       ,fibers-network
                       ,eta-fibers-dev
                       ,bytestring
+                      ,streaming-commons
   -- hs-source-dirs:      
   default-language:    Haskell2010
