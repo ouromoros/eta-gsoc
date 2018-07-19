@@ -8,14 +8,21 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Fiber
 import Control.Concurrent.Fiber.Network
 import Control.Concurrent.Fiber.Network.Internal (fiber)
+import qualified Control.Concurrent.MVar as IM
 
+forkFiberAndWait :: Fiber a -> IO ()
+forkFiberAndWait f = do
+    m <- IM.newEmptyMVar 
+    forkFiber (f >> (liftIO $ IM.putMVar m ()))
+    IM.takeMVar m
+    return ()
 -- This mesteriously would throw `ClosedByInterruptException`
 -- So maybe there are still some problems with concurrency
 -- main = forkFiber main' >> loop
 --   where loop = do
 --           threadDelay 1000
 --           loop
-main = fiber main'
+main = forkFiberAndWait main'
 
 main' :: Fiber ()
 main' = withSocketsDo $ do

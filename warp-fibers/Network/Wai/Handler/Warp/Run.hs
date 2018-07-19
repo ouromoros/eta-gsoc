@@ -97,7 +97,7 @@ runEnv p app = do
 -- This opens a listen socket on the port defined in 'Settings' and
 -- calls 'runSettingsSocket'.
 runSettings :: Settings -> Application -> IO ()
-runSettings set app = fiber $ withSocketsDo $
+runSettings set app = forkFiberAndWait $ withSocketsDo $
     liftIO $ bracket
         (fiber $ bindPortTCP (settingsPort set) (settingsHost set))
         (fiber . close)
