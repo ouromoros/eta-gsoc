@@ -116,13 +116,13 @@ Library
 --   else
 --       Other-modules: Network.Wai.Handler.Warp.MultiMap
 
-Test-Suite doctest
-  Type:                 exitcode-stdio-1.0
-  HS-Source-Dirs:       test
-  Ghc-Options:          -threaded -Wall
-  Main-Is:              doctests.hs
-  Build-Depends:        base >= 4.8 && < 5
-                      , doctest >= 0.10.1
+-- Test-Suite doctest
+--   Type:                 exitcode-stdio-1.0
+--   HS-Source-Dirs:       test
+--   Ghc-Options:          -threaded -Wall
+--   Main-Is:              doctests.hs
+--   Build-Depends:        base >= 4.8 && < 5
+--                       , doctest >= 0.10.1
 
 Test-Suite spec
     Main-Is:         Spec.hs
@@ -214,6 +214,9 @@ Test-Suite spec
                    , hashable
                    , http-date
     -- Build-Tool-Depends: hspec-discover:hspec-discover
+  if impl(eta >= 0.0.9.7)
+     build-depends:    eta-java-interop
+     cpp-options:      -DINTEROP
   if impl(ghc < 8)
       Build-Depends: semigroups
 
