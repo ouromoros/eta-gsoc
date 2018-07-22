@@ -483,11 +483,12 @@ defaultSocketOptions :: SocketType -> [(NS.SocketOption, Int)]
 defaultSocketOptions sockettype =
     case sockettype of
         NS.Datagram -> [(NS.ReuseAddr,1)]
+        NS.ServerSocket _ -> [(NS.ReuseAddr,1)]
         _           -> [(NS.NoDelay,1), (NS.ReuseAddr,1)]
 
 bindPortTCP :: Int -> HostPreference -> Fiber Socket
 bindPortTCP p s = do
-    sock <- bindPortGen (ServerSocket Stream) p s
+    sock <- bindPortGen (NS.ServerSocket Stream) p s
     listen sock (max 2048 NS.maxListenQueue)
     return sock
 

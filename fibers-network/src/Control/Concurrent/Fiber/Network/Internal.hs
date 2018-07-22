@@ -141,32 +141,6 @@ foreign import prim "eta.fiber.network.Utils.registerWrite"
 foreign import prim "eta.fiber.network.Utils.registerConnect"
   registerConnect# :: Object# a -> State# s -> State# s
 
--- foreign import prim "eta.fiber.network.Utils.waitAccept"
---   threadWaitAccept# :: Object# a -> State# s -> State# s
--- foreign import prim "eta.fiber.network.Utils.waitConnect"
---   threadWaitConnect# :: Object# a -> State# s -> State# s
--- foreign import prim "eta.fiber.network.Utils.waitRead"
---   threadWaitRead# :: Object# a -> State# s -> State# s
--- foreign import prim "eta.fiber.network.Utils.waitWrite"
---   threadWaitWrite# :: Object# a -> State# s -> State# s
-
--- threadWaitAccept :: Channel -> Fiber ()
--- threadWaitAccept (Channel o) = Fiber $ \s ->
---   case threadWaitAccept# o s of
---     s' -> (# s', () #)
--- threadWaitConnect :: Channel -> Fiber ()
--- threadWaitConnect (Channel o) = Fiber $ \s ->
---   case threadWaitConnect# o s of
---     s' -> (# s', () #)
--- threadWaitWrite :: Channel -> Fiber ()
--- threadWaitWrite (Channel o) = Fiber $ \s ->
---   case threadWaitWrite# o s of
---     s' -> (# s', () #)
--- threadWaitRead :: Channel -> Fiber ()
--- threadWaitRead (Channel o) = Fiber $ \s ->
---   case threadWaitRead# o s of
---     s' -> (# s', () #)
-
 getSockAddr = liftIO . getSockAddr'
 c_setsockopt c so i = liftIO $ c_setsockopt' c so i
 c_getsockopt c so = liftIO $ c_getsockopt' c so
