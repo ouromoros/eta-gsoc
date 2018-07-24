@@ -15,9 +15,9 @@ import           Network.Wai.Handler.Warp.WithApplication
 
 spec :: Spec
 spec = do
-  runIO $ do
-      unsetEnv "http_proxy"
-      unsetEnv "https_proxy"
+  -- runIO $ do
+      -- unsetEnv "http_proxy"
+      -- unsetEnv "https_proxy"
   describe "withApplication" $ do
     it "runs a wai Application while executing the given action" $ do
       let mkApp = return $ \ _request respond -> respond $ responseLBS ok200 [] "foo"
