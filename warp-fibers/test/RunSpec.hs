@@ -26,6 +26,8 @@ import System.IO (hFlush, hClose, Handle, IOMode(..))
 import System.IO.Unsafe (unsafePerformIO)
 import System.Timeout (timeout)
 import Test.Hspec
+import Network.Wai.Handler.Warp.Fiber
+import Control.Concurrent.Fiber (liftIO)
 
 import HTTP
 
@@ -100,7 +102,7 @@ withApp settings app f = do
     baton <- newEmptyMVar
     let settings' = setPort port
                   $ setHost "127.0.0.1"
-                  $ setBeforeMainLoop (putMVar baton ())
+                  $ setBeforeMainLoop (liftIO $ putMVar baton ())
                     settings
     bracket
         (forkIO $ runSettings settings' app `onException` putMVar baton ())
@@ -130,7 +132,7 @@ runTerminateTest :: InvalidRequest
                  -> IO ()
 runTerminateTest expected input = do
     ref <- I.newIORef Nothing
-    let onExc _ = I.writeIORef ref . Just
+    let onExc _ = liftIO . I.writeIORef ref . Just
     withApp (setOnException onExc defaultSettings) dummyApp $ \port -> do
         handle <- connectTo "127.0.0.1" port
         hPutStr handle input

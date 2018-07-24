@@ -6,6 +6,7 @@ import Network.HTTP.Types
 import Network.Wai.Handler.Warp.File
 import Network.Wai.Handler.Warp.FileInfoCache
 import Network.Wai.Handler.Warp.Header
+import Network.Wai.Handler.Warp.Fiber
 
 import Test.Hspec
 
@@ -17,7 +18,7 @@ testFileRange :: String
               -> RspFileInfo
               -> Spec
 testFileRange desc reqhs file ans = it desc $ do
-    finfo <- getInfo file
+    finfo <- fiber $ getInfo file
     let WithBody s hs off len = ans
         hs' = ("Last-Modified",fileInfoDate finfo) : hs
         ans' = WithBody s hs' off len

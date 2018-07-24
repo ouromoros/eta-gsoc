@@ -13,6 +13,8 @@ import qualified Data.ByteString as S
 import qualified Data.ByteString.Char8 as S8
 import qualified Network.HTTP.Types.Header as HH
 import Data.IORef
+import Network.Wai.Handler.Warp.Fiber
+import Control.Concurrent.Fiber
 
 main :: IO ()
 main = hspec spec
@@ -34,7 +36,7 @@ spec = do
                 , "\n\r\n"
                 ]
         (actual, src) <- headerLinesList' chunks
-        leftover <- readLeftoverSource src
+        leftover <- fiber $ readLeftoverSource src
         leftover `shouldBe` S.empty
         actual `shouldBe` ["GET / HTTP/1.1", "Connection: Close"]
     prop "random chunking" $ \breaks extraS -> do
@@ -62,30 +64,30 @@ spec = do
 
   describe "headerLines" $ do
       it "can handle a nomarl case" $ do
-          src <- mkSourceFunc ["Status: 200\r\nContent-Type: text/plain\r\n\r\n"] >>= mkSource
-          x <- headerLines True src
+          src <- fiber (mkSourceFunc ["Status: 200\r\nContent-Type: text/plain\r\n\r\n"] >>= mkSource)
+          x <- fiber $ headerLines True src
           x `shouldBe` ["Status: 200", "Content-Type: text/plain"]
 
       it "can handle a nasty case (1)" $ do
-          src <- mkSourceFunc ["Status: 200", "\r\nContent-Type: text/plain", "\r\n\r\n"] >>= mkSource
-          x <- headerLines True src
+          src <- fiber (mkSourceFunc ["Status: 200", "\r\nContent-Type: text/plain", "\r\n\r\n"] >>= mkSource)
+          x <- fiber $ headerLines True src
           x `shouldBe` ["Status: 200", "Content-Type: text/plain"]
 
       it "can handle a nasty case (1)" $ do
-          src <- mkSourceFunc ["Status: 200", "\r", "\nContent-Type: text/plain", "\r", "\n\r\n"] >>= mkSource
-          x <- headerLines True src
+          src <- fiber (mkSourceFunc ["Status: 200", "\r", "\nContent-Type: text/plain", "\r", "\n\r\n"] >>= mkSource)
+          x <- fiber $ headerLines True src
           x `shouldBe` ["Status: 200", "Content-Type: text/plain"]
 
       it "can handle a nasty case (1)" $ do
-          src <- mkSourceFunc ["Status: 200", "\r", "\n", "Content-Type: text/plain", "\r", "\n", "\r", "\n"] >>= mkSource
-          x <- headerLines True src
+          src <- fiber (mkSourceFunc ["Status: 200", "\r", "\n", "Content-Type: text/plain", "\r", "\n", "\r", "\n"] >>= mkSource)
+          x <- fiber $ headerLines True src
           x `shouldBe` ["Status: 200", "Content-Type: text/plain"]
 
       it "can handle an illegal case (1)" $ do
-          src <- mkSourceFunc ["\nStatus:", "\n 200", "\nContent-Type: text/plain", "\r\n\r\n"] >>= mkSource
-          x <- headerLines True src
+          src <- fiber (mkSourceFunc ["\nStatus:", "\n 200", "\nContent-Type: text/plain", "\r\n\r\n"] >>= mkSource)
+          x <- fiber $ headerLines True src
           x `shouldBe` []
-          y <- headerLines True src
+          y <- fiber $ headerLines True src
           y `shouldBe` ["Status: 200", "Content-Type: text/plain"]
 
   where
@@ -97,7 +99,7 @@ spec = do
 headerLinesList :: [S8.ByteString] -> IO (S8.ByteString, [S8.ByteString])
 headerLinesList orig = do
     (res, src) <- headerLinesList' orig
-    leftover <- readLeftoverSource src
+    leftover <- fiber $ readLeftoverSource src
     return (leftover, res)
 
 headerLinesList' :: [S8.ByteString] -> IO ([S8.ByteString], Source)
@@ -110,13 +112,13 @@ headerLinesList' orig = do
                 y:z -> do
                     writeIORef ref z
                     return y
-    src' <- mkSource src
-    res <- headerLines True src'
+    src' <- fiber $ mkSource (liftIO src)
+    res <- fiber $ headerLines True src'
     return (res, src')
 
 consumeLen :: Int -> Source -> IO S8.ByteString
 consumeLen len0 src =
-    loop id len0
+    fiber $ loop id len0
   where
     loop front len
         | len <= 0 = return $ S.concat $ front []
@@ -131,15 +133,15 @@ consumeLen len0 src =
 overLargeHeader :: Selector InvalidRequest
 overLargeHeader e = e == OverLargeHeader
 
-mkSourceFunc :: [S8.ByteString] -> IO (IO S8.ByteString)
+mkSourceFunc :: [S8.ByteString] -> Fiber (Fiber S8.ByteString)
 mkSourceFunc bss = do
-    ref <- newIORef bss
+    ref <- liftIO $ newIORef bss
     return $ reader ref
   where
     reader ref = do
-        xss <- readIORef ref
+        xss <- liftIO $ readIORef ref
         case xss of
             []     -> return S.empty
             (x:xs) -> do
-                writeIORef ref xs
+                liftIO $ writeIORef ref xs
                 return x
