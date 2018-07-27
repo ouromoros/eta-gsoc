@@ -21,7 +21,7 @@ executable echo-server
   -- other-extensions:    
   build-depends:       base >=4.8 && <4.9
                       ,fibers-network
-                      ,eta-fibers-dev
+                      ,eta-fibers-new
                       ,bytestring
                       ,streaming-commons
   -- hs-source-dirs:      

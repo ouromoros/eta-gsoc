@@ -4,7 +4,6 @@
 module Network.Wai.Handler.Warp.HTTP2 (isHTTP2, http2) where
 
 -- import Control.Concurrent (forkIO, killThread)
-import Control.Concurrent (killThread)
 import Control.Concurrent.Fiber
 import qualified Control.Exception as E
 import Network.HTTP2
@@ -24,6 +23,8 @@ import qualified Network.Wai.Handler.Warp.Settings as S (Settings)
 import Network.Wai.Handler.Warp.Types
 
 ----------------------------------------------------------------
+
+killThread = undefined
 
 http2 :: Connection -> InternalInfo1 -> SockAddr -> Transport -> S.Settings -> (BufSize -> Fiber ByteString) -> Application -> Fiber ()
 http2 conn ii1 addr transport settings readN app = do

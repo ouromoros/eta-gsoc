@@ -1,10 +1,17 @@
 
-module Network.Wai.Handler.Warp.Fiber where
+module Network.Wai.Handler.Warp.Fiber (
+    liftIO
+  , forkFiberAndWait
+  , fiber
+  , readMVar
+  ) where
+
 
 import Control.Concurrent.Fiber
 import Control.Concurrent.Fiber.MVar
 import GHC.IO (IO(..))
 import qualified Control.Concurrent.MVar as IM
+import Control.Monad.IO.Class (liftIO)
 
 forkFiberAndWait :: Fiber a -> IO ()
 forkFiberAndWait f = do
@@ -15,7 +22,7 @@ forkFiberAndWait f = do
     return ()
 
 fiber :: Fiber a -> IO a
-fiber (Fiber a) = IO a
+fiber = runFiber
 
 readMVar :: MVar a -> Fiber a
 readMVar m = do

@@ -22,6 +22,8 @@ import           Network.Wai.Handler.Warp.Settings
 import           Network.Wai.Handler.Warp.Types
 import           Network.Wai.Handler.Warp.Fiber
 import           Control.Concurrent.Fiber
+import           Control.Concurrent.Fiber.MVar (takeMVar, putMVar)
+import           Control.Concurrent.MVar (newEmptyMVar)
 
 -- | Runs the given 'Application' on a free port. Passes the port to the given
 -- operation and executes it, while the 'Application' is running. Shuts down the
