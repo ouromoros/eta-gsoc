@@ -3,6 +3,7 @@ packages: echo-server
           warp-demo
           warp-fibers
           warp
+          eta-fibers-new
 
 source-repository-package
   type: git
