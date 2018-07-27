@@ -62,6 +62,7 @@ import GHC.IO.FD (FD(..), FDType(..))
 import GHC.Base
 import Java
 import Java.Core
+import Control.Monad.IO.Class (liftIO)
 
 data Socket
   = MkSocket
@@ -88,7 +89,7 @@ foreign import java unsafe "@new" mkInetSocketAddress
 foreign import java unsafe "@static java.net.InetAddress.getByAddress" getByAddress :: JByteArray -> InetAddress
 
 fiber :: Fiber a -> IO a
-fiber (Fiber a) = IO a
+fiber = runFiber
 
 foreign import java unsafe "@static eta.network.Utils.getsockopt"
   c_getsockopt' :: Channel -> SOption -> IO CInt
@@ -107,21 +108,29 @@ foreign import java unsafe "@static eta.network.Utils.isBlocking"
 
 
 registerRead :: Channel -> Fiber ()
-registerRead (Channel o) = Fiber $ \s ->
-  case registerRead# o s of
-    s' -> (# s', () #)
+registerRead = liftIO . registerRead'
+  where
+    registerRead' (Channel o) = IO $ \s ->
+      case registerRead# o s of
+        s' -> (# s', () #)
 registerWrite :: Channel -> Fiber ()
-registerWrite (Channel o) = Fiber $ \s ->
-  case registerWrite# o s of
-    s' -> (# s', () #)
+registerWrite = liftIO . registerWrite'
+  where
+    registerWrite' (Channel o) = IO $ \s ->
+      case registerWrite# o s of
+        s' -> (# s', () #)
 registerAccept :: Channel -> Fiber ()
-registerAccept (Channel o) = Fiber $ \s ->
-  case registerAccept# o s of
-    s' -> (# s', () #)
+registerAccept = liftIO . registerAccept'
+  where
+    registerAccept' (Channel o) = IO $ \s ->
+      case registerAccept# o s of
+        s' -> (# s', () #)
 registerConnect :: Channel -> Fiber ()
-registerConnect (Channel o) = Fiber $ \s ->
-  case registerConnect# o s of
-    s' -> (# s', () #)
+registerConnect = liftIO . registerConnect'
+  where
+    registerConnect' (Channel o) = IO $ \s ->
+      case registerConnect# o s of
+        s' -> (# s', () #)
 
 threadWaitRead :: Channel -> Fiber ()
 threadWaitRead c = registerRead c >> block

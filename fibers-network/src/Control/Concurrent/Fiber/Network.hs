@@ -70,8 +70,8 @@ module Control.Concurrent.Fiber.Network
 
 import Control.Concurrent.Fiber.Network.Internal
 
-import Control.Concurrent.Fiber (Fiber(..), liftIO, takeMVar, putMVar)
-import qualified Control.Concurrent.Fiber as F
+import Control.Concurrent.Fiber (Fiber(..))
+import Control.Concurrent.Fiber.MVar (takeMVar, putMVar)
 import qualified Control.Concurrent.MVar as M
 
 import qualified Network.Socket as NS
@@ -100,6 +100,7 @@ import System.IO.Error
 import GHC.Conc (closeFdWith) -- blocking?
 import GHC.IO.Exception
 -- import Data.Streaming.Network (HostPreference)
+import Control.Monad.IO.Class (liftIO)
 
 foreign import java unsafe "@static eta.network.Utils.connect"
   c_connect' :: Channel -> SocketAddress -> IO Bool
@@ -130,7 +131,7 @@ c_bind c sa = liftIO $ c_bind' c sa
 c_socket family t p = liftIO $ c_socket' family t p
 c_sendto c p s sa = liftIO $ c_sendto' c p s sa
 
-newMVar = liftIO . F.newMVar
+newMVar = liftIO . M.newMVar
 modifyMVar_ m f = liftIO $ M.modifyMVar_ m (\x -> fiber (f x))
 getAddrInfo mHints node service = liftIO $ NS.getAddrInfo mHints node service
 getNameInfo f h s addr = liftIO $ NS.getNameInfo f h s addr
