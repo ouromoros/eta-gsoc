@@ -8,21 +8,26 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Fiber
 import Control.Concurrent.Fiber.Network
 import Control.Concurrent.Fiber.Network.Internal (fiber)
+import Data.Streaming.Network.Internal (HostPreference(..))
+import qualified Control.Concurrent.MVar as IM
 
+forkFiberAndWait :: Fiber a -> IO ()
+forkFiberAndWait f = do
+    m <- IM.newEmptyMVar 
+    forkFiber (f >> (liftIO $ IM.putMVar m ()))
+    IM.takeMVar m
+    return ()
 -- This mesteriously would throw `ClosedByInterruptException`
 -- So maybe there are still some problems with concurrency
-main = forkFiber main' >> loop
-  where loop = do
-          threadDelay 1000
-          loop
--- main = fiber main'
+-- main = forkFiber main' >> loop
+--   where loop = do
+--           threadDelay 100
+--           loop
+main = forkFiberAndWait main'
 
 main' :: Fiber ()
 main' = withSocketsDo $ do
-    sock <- socket AF_INET (ServerSocket Stream) 5    -- create socket
-    setSocketOption sock ReuseAddr 1   -- make socket immediately reusable - eases debugging.
-    bind sock (SockAddrInet 4242 0)   -- listen on TCP port 4242.
-    listen sock 2                              -- set a max of 2 queued connections
+    sock <- bindPortTCP 4242 HostIPv4
     mainLoop sock
 
 

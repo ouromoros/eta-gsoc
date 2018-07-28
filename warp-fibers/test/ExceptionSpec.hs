@@ -12,9 +12,11 @@ import Network.Wai.Internal (Request(..))
 import Network.Wai.Handler.Warp
 import Test.Hspec
 import Control.Exception
-import qualified Data.Streaming.Network as N
+-- import qualified Data.Streaming.Network as N
 import Control.Concurrent.Async (withAsync)
-import Network.Socket (close)
+-- import Network.Socket (close)
+import Control.Concurrent.Fiber.Network (close, bindRandomPortTCP)
+import Network.Wai.Handler.Warp.Fiber
 
 import HTTP
 
@@ -23,8 +25,8 @@ main = hspec spec
 
 withTestServer :: (Int -> IO a) -> IO a
 withTestServer inner = bracket
-    (N.bindRandomPortTCP "127.0.0.1")
-    (close . snd)
+    (fiber $ bindRandomPortTCP "127.0.0.1")
+    (fiber . close . snd)
     $ \(prt, lsocket) -> do
         withAsync (runSettingsSocket defaultSettings lsocket testApp)
             $ \_ -> inner prt

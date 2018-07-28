@@ -11,6 +11,7 @@ import Network.Wai.Handler.Warp.HTTP2.HPACK
 import Network.HPACK
 import Network.HPACK.Token
 import Test.Hspec
+import Network.Wai.Handler.Warp.Fiber
 
 main :: IO ()
 main = hspec spec
@@ -19,7 +20,7 @@ spec :: Spec
 spec = do
     describe "composeHeader" $ do
         it "composes a HTTP header" $
-            composeHeader H.http11 H.ok200 headers `shouldReturn` composedHeader
+            (fiber $ composeHeader H.http11 H.ok200 headers) `shouldReturn` composedHeader
     describe "addServer" $ do
         it "adds Server if not exist" $ do
             let hdrs = []
