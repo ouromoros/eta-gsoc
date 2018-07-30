@@ -31,10 +31,10 @@ main' = withSocketsDo $ do
     sock <- bindPortTCP 4242 HostIPv4
     mainLoop sock
 
-
 mainLoop :: Socket -> Fiber ()
 mainLoop sock = do
-    conn <- accept sock     -- accept a connection and handle it
+    -- conn <- accept sock     -- accept a connection and handle it
+    conn <- liftIO $ runFiber $ accept sock
     liftIO $ forkFiber $ runConn conn            -- run our server's logic
     mainLoop sock           -- repeat
  
