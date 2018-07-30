@@ -15,12 +15,13 @@ import qualified Control.Concurrent.MVar as IM
 import Control.Monad.IO.Class (liftIO)
 import Control.Exception as E
 import GHC.Conc.Sync (ThreadId(..))
+import Control.Monad (void)
 
 forkFiberAndWait :: Fiber a -> IO ()
 forkFiberAndWait f = do
     m <- IM.newEmptyMVar 
     -- should use something like `finally` instead of >> here
-    forkFiber (f >> (liftIO $ IM.putMVar m ()))
+    forkFiber $ liftIO ((void $ runFiber f) `E.finally` IM.putMVar m ())
     IM.takeMVar m
     return ()
 

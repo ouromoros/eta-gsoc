@@ -45,6 +45,7 @@ module Control.Concurrent.Fiber.Network.Internal
   ,throwSocketErrorWaitWrite
     )
   where
+import qualified Control.Concurrent.MVar as M
 import Control.Concurrent.Fiber
 import Control.Concurrent.Fiber.MVar
 import System.Posix.Types (Channel(..))
@@ -156,10 +157,7 @@ c_getsockopt c so = liftIO $ c_getsockopt' c so
 isBlocking = liftIO . isBlocking'
 
 readMVar :: MVar a -> Fiber a
-readMVar m = do
-  a <- takeMVar m
-  putMVar m a
-  return a
+readMVar = liftIO . M.readMVar
 
 toJByteArray :: [Word8] -> JByteArray
 toJByteArray word8s = toJava bytes
