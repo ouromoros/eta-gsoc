@@ -100,17 +100,17 @@ register mgr onTimeout = liftIO $ do
     return h
 
 -- | Registering a timeout action of killing this thread.
-registerKillThread = undefined
--- registerKillThread :: Manager -> TimeoutAction -> Fiber Handle
--- registerKillThread m onTimeout = do
---     -- If we hold ThreadId, the stack and data of the thread is leaked.
---     -- If we hold Weak ThreadId, the stack is released. However, its
---     -- data is still leaked probably because of a bug of GHC.
---     -- So, let's just use ThreadId and release ThreadId by
---     -- overriding the timeout action by "cancel".
---     tid <- liftIO myThreadId
---     -- First run the timeout action in case the child thread is masked.
---     register m (liftIO $ (fiber onTimeout) `E.finally` E.throwTo tid TimeoutThread)
+registerKillThread :: Manager -> TimeoutAction -> Fiber Handle
+registerKillThread m onTimeout = do
+    -- If we hold ThreadId, the stack and data of the thread is leaked.
+    -- If we hold Weak ThreadId, the stack is released. However, its
+    -- data is still leaked probably because of a bug of GHC.
+    -- So, let's just use ThreadId and release ThreadId by
+    -- overriding the timeout action by "cancel".
+    tid <- liftIO myThreadId
+    -- First run the timeout action in case the child thread is masked.
+    -- register m (liftIO $ (fiber onTimeout) `E.finally` E.throwTo tid TimeoutThread)
+    register m (liftIO $ (fiber onTimeout) `E.finally` (E.throwTo tid TimeoutThread))
 
 data TimeoutThread = TimeoutThread
     deriving Typeable

@@ -4,6 +4,7 @@ module Network.Wai.Handler.Warp.Fiber (
   , forkFiberAndWait
   , fiber
   , readMVar
+  , throwFiber
   ) where
 
 
@@ -12,6 +13,8 @@ import Control.Concurrent.Fiber.MVar
 import GHC.IO (IO(..))
 import qualified Control.Concurrent.MVar as IM
 import Control.Monad.IO.Class (liftIO)
+import Control.Exception as E
+import GHC.Conc.Sync (ThreadId(..))
 
 forkFiberAndWait :: Fiber a -> IO ()
 forkFiberAndWait f = do
@@ -24,8 +27,8 @@ forkFiberAndWait f = do
 fiber :: Fiber a -> IO a
 fiber = runFiber
 
+throwFiber :: E.Exception e => FiberId -> e -> Fiber ()
+throwFiber (FiberId id) = liftIO . E.throwTo (ThreadId id)
+
 readMVar :: MVar a -> Fiber a
-readMVar m = do
-  a <- takeMVar m
-  putMVar m a
-  return a
+readMVar = liftIO . IM.readMVar
