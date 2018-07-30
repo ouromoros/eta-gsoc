@@ -17,7 +17,7 @@ import Data.ByteString.Builder.HTTP.Chunked (chunkedTransferEncoding, chunkedTra
 import qualified Control.Exception as E
 import Data.Array ((!))
 import qualified Data.ByteString as S
-import Data.ByteString.Builder (byteString, Builder)
+import Data.ByteString.Builder (byteString, Builder, toLazyByteString, lazyByteString)
 import Data.ByteString.Builder.Extra (flush)
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.CaseInsensitive as CI
@@ -210,8 +210,14 @@ sendRsp conn _ ver s hs RspNoBody = do
 
 ----------------------------------------------------------------
 
-sendRsp conn _ ver s hs (RspBuilder body needsChunked) = do
-    header <- composeHeaderBuilder ver s hs needsChunked
+sendRsp conn _ ver s hs (RspBuilder body' needsChunked) = do
+    -- let needsChunked = False
+    -- problem with chunked
+    header' <- composeHeaderBuilder ver s hs needsChunked
+    -- FIX ME: If remove the following two unnecessay lines, there will mysteriously be `ClassCastException`,
+    -- so it is a desperate patch here.
+    let header = lazyByteString $ toLazyByteString header'
+    let body = lazyByteString $ toLazyByteString body'
     let hdrBdy
          | needsChunked = header <> chunkedTransferEncoding body
                                  <> chunkedTransferTerminator
