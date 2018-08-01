@@ -17,18 +17,18 @@ import Foreign.C.Types
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Ptr (Ptr, castPtr, plusPtr)
 -- import GHC.Conc (threadWaitRead)
-import Control.Concurrent.Fiber.Network.Internal (threadWaitRead)
+-- import Control.Concurrent.Fiber.Network.Internal (threadWaitRead)
 -- import Network.Socket (Socket, fdSocket)
-import Control.Concurrent.Fiber.Network (Socket, fdSocket)
+import Control.Concurrent.Fiber.Network (Socket)
 
 import Network.Wai.Handler.Warp.Buffer
 import Network.Wai.Handler.Warp.Imports
 import Network.Wai.Handler.Warp.Types
 
 -- #ifdef mingw32_HOST_OS
-import GHC.IO.FD (FD(..), FDType(..))
+-- import GHC.IO.FD (FD(..), FDType(..))
 import System.Posix.Types (Channel)
-import Control.Concurrent.Fiber.Network (readRawBufferPtr)
+import Control.Concurrent.Fiber.Network (recvBuf)
 -- import Network.Wai.Handler.Warp.Windows
 -- #endif
 
@@ -94,36 +94,35 @@ spell init0 siz0 recv recvBuf
 
 receive :: Socket -> BufferPool -> Recv
 receive sock pool = withBufferPool pool $ \ (ptr, size) -> do
-    let sock' = fdSocket sock
-        size' = fromIntegral size
-    fromIntegral <$> receiveloop sock' ptr size'
+    let size' = fromIntegral size
+    fromIntegral <$> recvBuf sock ptr size'
 
 receiveBuf :: Socket -> RecvBuf
 receiveBuf sock buf0 siz0 = loop buf0 siz0
   where
     loop _   0   = return True
     loop buf siz = do
-        n <- fromIntegral <$> receiveloop fd buf (fromIntegral siz)
+        n <- fromIntegral <$> recvBuf sock buf (fromIntegral siz)
         -- fixme: what should we do in the case of n == 0
         if n == 0 then
             return False
           else
             loop (buf `plusPtr` n) (siz - n)
-    fd = fdSocket sock
+    -- fd = fdSocket sock
 
-receiveloop :: Channel -> Ptr Word8 -> CSize -> Fiber CInt
--- receiveloop = undefined
-receiveloop sock ptr size = do
-    bytes <- fromIntegral <$> readRawBufferPtr "recv" (FD (FDGeneric sock) True)(castPtr ptr) 0 size
-    if bytes == -1 then do
-        errno <- liftIO getErrno
-        if errno == eAGAIN then do
-            threadWaitRead sock
-            receiveloop sock ptr size
-          else
-            liftIO $ throwErrno "receiveloop"
-       else
-        return bytes
+-- receiveloop :: Channel -> Ptr Word8 -> CSize -> Fiber CInt
+-- -- receiveloop = undefined
+-- receiveloop sock ptr size = do
+--     bytes <- fromIntegral <$> readRawBufferPtr "recv" (FD (FDGeneric sock) True)(castPtr ptr) 0 size
+--     if bytes == -1 then do
+--         errno <- liftIO getErrno
+--         if errno == eAGAIN then do
+--             threadWaitRead sock
+--             receiveloop sock ptr size
+--           else
+--             liftIO $ throwErrno "receiveloop"
+--        else
+--         return bytes
 
 -- fixme: the type of the return value
 -- foreign import ccall unsafe "recv"
