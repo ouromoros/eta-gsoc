@@ -18,7 +18,7 @@ import Foreign.ForeignPtr (newForeignPtr_)
 import Foreign.Ptr (plusPtr)
 import qualified System.IO as IO
 -- #else
--- import Control.Exception
+-- import Control.Concurrent.Fiber.Exception
 -- import Foreign.C.Error (throwErrno)
 -- import Foreign.C.Types
 -- import Foreign.Ptr (Ptr, castPtr, plusPtr)

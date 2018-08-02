@@ -5,7 +5,8 @@
 module Network.Wai.Handler.Warp.HTTP2.Sender (frameSender) where
 
 import Control.Concurrent.STM
-import qualified Control.Exception as E
+import qualified Control.Concurrent.Fiber.Exception as E
+import qualified Control.Exception as IE
 import qualified Data.ByteString as BS
 import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder.Extra as B
@@ -65,7 +66,7 @@ data Switch = C Control
 frameSender :: Context -> Connection -> S.Settings -> Manager -> Fiber ()
 frameSender ctx@Context{outputQ,controlQ,connectionWindow,encodeDynamicTable}
             conn@Connection{connWriteBuffer,connBufferSize,connSendAll}
-            settings mgr = liftIO $ (fiber $ loop 0) `E.catch` ignore
+            settings mgr = loop 0 `E.catch` ignore
   where
     dequeue off = do
         isEmpty <- isEmptyTQueue controlQ
@@ -90,7 +91,7 @@ frameSender ctx@Context{outputQ,controlQ,connectionWindow,encodeDynamicTable}
             O (_,pre,out) -> do
                 let strm = outputStream out
                 liftIO $ writeIORef (streamPrecedence strm) pre
-                off' <- liftIO $ outputOrEnqueueAgain out off
+                off' <- outputOrEnqueueAgain out off
                 case off' of
                     0                -> loop 0
                     _ | off' > 15872 -> flushN off' >> loop 0 -- fixme: hard-coding
@@ -173,7 +174,7 @@ frameSender ctx@Context{outputQ,controlQ,connectionWindow,encodeDynamicTable}
 
     output _ _ _ = undefined -- never reach
 
-    outputOrEnqueueAgain out off = liftIO $ E.handle (fiber . resetStream) $ fiber $ do
+    outputOrEnqueueAgain out off = E.handle resetStream $ do
         state <- liftIO $ readIORef $ streamState strm
         if isClosed state then
             return off
@@ -241,7 +242,7 @@ frameSender ctx@Context{outputQ,controlQ,connectionWindow,encodeDynamicTable}
         flushN $ kvlen + frameHeaderLength
         -- Now off is 0
         (ths', kvlen') <- hpackEncodeHeaderLoop ctx bufHeaderPayload headerPayloadLim ths
-        liftIO $ when (ths == ths') $ E.throwIO $ ConnectionError CompressionError "cannot compress the header"
+        liftIO $ when (ths == ths') $ IE.throwIO $ ConnectionError CompressionError "cannot compress the header"
         let flag = case ths' of
                 [] -> setEndHeader defaultFlags
                 _  -> defaultFlags
@@ -317,7 +318,7 @@ frameSender ctx@Context{outputQ,controlQ,connectionWindow,encodeDynamicTable}
         hinfo = FrameHeader len flag sid
 
     {-# INLINE ignore #-}
-    ignore :: E.SomeException -> IO ()
+    ignore :: IE.SomeException -> Fiber ()
     ignore _ = return ()
 
 ----------------------------------------------------------------

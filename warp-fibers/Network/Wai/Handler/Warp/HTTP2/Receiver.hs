@@ -8,7 +8,8 @@ module Network.Wai.Handler.Warp.HTTP2.Receiver (frameReceiver) where
 
 -- import Control.Concurrent
 import Control.Concurrent.STM
-import qualified Control.Exception as E
+import qualified Control.Concurrent.Fiber.Exception as E
+import qualified Control.Exception as IE
 import qualified Data.ByteString as BS
 import Data.IORef
 import Network.HPACK
@@ -27,7 +28,7 @@ import Network.Wai.Handler.Warp.Types
 ----------------------------------------------------------------
 
 frameReceiver :: Context -> MkReq -> (BufSize -> Fiber ByteString) -> Fiber ()
-frameReceiver ctx mkreq recvN = liftIO $ (fiber $ loop 0) `E.catch` (fiber . sendGoaway)
+frameReceiver ctx mkreq recvN = loop 0 `E.catch` sendGoaway
   where
     Context{ http2settings
            , streamTable
@@ -38,7 +39,7 @@ frameReceiver ctx mkreq recvN = liftIO $ (fiber $ loop 0) `E.catch` (fiber . sen
            , controlQ
            } = ctx
     sendGoaway e
-      | Just (ConnectionError err msg) <- E.fromException e = do
+      | Just (ConnectionError err msg) <- IE.fromException e = do
           csid <- liftIO $ readIORef clientStreamId
           let !frame = goawayFrame csid err msg
           enqueueControl controlQ $ CGoaway frame
@@ -64,7 +65,7 @@ frameReceiver ctx mkreq recvN = liftIO $ (fiber $ loop 0) `E.catch` (fiber . sen
     processStreamGuardingError (fid, FrameHeader{streamId})
       | isResponse streamId &&
         (fid `notElem` [FramePriority,FrameRSTStream,FrameWindowUpdate]) =
-        liftIO $ E.throwIO $ ConnectionError ProtocolError "stream id should be odd"
+        liftIO $ IE.throwIO $ ConnectionError ProtocolError "stream id should be odd"
     processStreamGuardingError (FrameUnknown _, FrameHeader{payloadLength}) = do
         mx <- liftIO $ readIORef continued
         case mx of
@@ -72,9 +73,9 @@ frameReceiver ctx mkreq recvN = liftIO $ (fiber $ loop 0) `E.catch` (fiber . sen
                 -- ignoring unknown frame
                 consume payloadLength
                 return True
-            Just _  -> liftIO $ E.throwIO $ ConnectionError ProtocolError "unknown frame"
+            Just _  -> liftIO $ IE.throwIO $ ConnectionError ProtocolError "unknown frame"
     processStreamGuardingError (FramePushPromise, _) =
-        liftIO $ E.throwIO $ ConnectionError ProtocolError "push promise is not allowed"
+        liftIO $ IE.throwIO $ ConnectionError ProtocolError "push promise is not allowed"
     processStreamGuardingError typhdr@(ftyp, header@FrameHeader{payloadLength}) = do
         settings <- liftIO $ readIORef http2settings
         case checkFrameHeader settings typhdr of
@@ -83,14 +84,14 @@ frameReceiver ctx mkreq recvN = liftIO $ (fiber $ loop 0) `E.catch` (fiber . sen
                     sendReset err sid
                     consume payloadLength
                     return True
-                connErr -> liftIO $ E.throwIO connErr
+                connErr -> liftIO $ IE.throwIO connErr
             Right _ -> do
-                ex <- liftIO $ E.try $ fiber $ controlOrStream ftyp header
+                ex <- E.try $ controlOrStream ftyp header
                 case ex of
                     Left (StreamError err sid) -> do
                         sendReset err sid
                         return True
-                    Left connErr -> liftIO $ E.throw connErr
+                    Left connErr -> liftIO $ IE.throw connErr
                     Right cont -> return cont
 
     controlOrStream ftyp header@FrameHeader{streamId, payloadLength}
@@ -116,7 +117,7 @@ frameReceiver ctx mkreq recvN = liftIO $ (fiber $ loop 0) `E.catch` (fiber . sen
                       resetContinued
                       let mcl = readInt <$> getHeaderValue tokenContentLength reqvt
                       liftIO $ when (just mcl (/= (0 :: Int))) $
-                          E.throwIO $ StreamError ProtocolError streamId
+                          IE.throwIO $ StreamError ProtocolError streamId
                       liftIO $ writeIORef streamPrecedence $ toPrecedence pri
                       liftIO $ writeIORef streamState HalfClosed
                       (!req, !ii) <- mkreq tbl (Just 0, return "")
@@ -148,14 +149,14 @@ frameReceiver ctx mkreq recvN = liftIO $ (fiber $ loop 0) `E.catch` (fiber . sen
                  Nothing  -> return ()
                  Just sid
                    | sid == streamId && ftyp == FrameContinuation -> return ()
-                   | otherwise -> liftIO $  E.throwIO $ ConnectionError ProtocolError "continuation frame must follow"
+                   | otherwise -> liftIO $  IE.throwIO $ ConnectionError ProtocolError "continuation frame must follow"
          getStream = do
              mstrm0 <- search streamTable streamId
              case mstrm0 of
                  js@(Just strm0) -> do
                      when (ftyp == FrameHeaders) $ do
                          st <- liftIO $ readIORef $ streamState strm0
-                         when (isHalfClosed st) $ liftIO $ E.throwIO $ ConnectionError StreamClosed "header must not be sent to half closed"
+                         when (isHalfClosed st) $ liftIO $ IE.throwIO $ ConnectionError StreamClosed "header must not be sent to half closed"
                          -- Priority made an idele stream
                          when (isIdle st) $ opened ctx strm0
                      return js
@@ -163,20 +164,20 @@ frameReceiver ctx mkreq recvN = liftIO $ (fiber $ loop 0) `E.catch` (fiber . sen
                    | isResponse streamId -> return Nothing
                    | otherwise           -> do
                          when (ftyp `notElem` [FrameHeaders,FramePriority]) $
-                             liftIO $ E.throwIO $ ConnectionError ProtocolError "this frame is not allowed in an idel stream"
+                             liftIO $ IE.throwIO $ ConnectionError ProtocolError "this frame is not allowed in an idel stream"
                          csid <- liftIO $ readIORef clientStreamId
                          if streamId <= csid then
                              if ftyp == FramePriority then
                                  return Nothing -- will be ignored
                                else
-                                 liftIO $ E.throwIO $ ConnectionError ProtocolError "stream identifier must not decrease"
+                                 liftIO $ IE.throwIO $ ConnectionError ProtocolError "stream identifier must not decrease"
                            else do
                              liftIO $ when (ftyp == FrameHeaders) $ do
                                  writeIORef clientStreamId streamId
                                  cnt <- readIORef concurrency
                                  -- Checking the limitation of concurrency
                                  when (cnt >= maxConcurrency) $
-                                     E.throwIO $ StreamError RefusedStream streamId
+                                     IE.throwIO $ StreamError RefusedStream streamId
                              ws <- liftIO $ initialWindowSize <$> readIORef http2settings
                              newstrm <- newStream streamId (fromIntegral ws)
                              when (ftyp == FrameHeaders) $ opened ctx newstrm
@@ -197,7 +198,7 @@ control :: FrameTypeId -> FrameHeader -> ByteString -> Context -> Fiber Bool
 control FrameSettings header@FrameHeader{flags} bs Context{http2settings, controlQ, firstSettings, streamTable} = do
     SettingsFrame alist <- guardIt $ decodeSettingsFrame header bs
     case checkSettingsList alist of
-        Just x  -> liftIO $ E.throwIO x
+        Just x  -> liftIO $ IE.throwIO x
         Nothing -> return ()
     -- HTTP/2 Setting from a browser
     unless (testAck flags) $ do
@@ -234,7 +235,7 @@ control FrameWindowUpdate header bs Context{connectionWindow} = do
       let !w1 = w0 + n
       writeTVar connectionWindow w1
       return w1
-    when (isWindowOverflow w) $ liftIO $ E.throwIO $ ConnectionError FlowControlError "control window should be less than 2^31"
+    when (isWindowOverflow w) $ liftIO $ IE.throwIO $ ConnectionError FlowControlError "control window should be less than 2^31"
     return True
 
 control _ _ _ _ =
@@ -246,14 +247,14 @@ control _ _ _ _ =
 {-# INLINE guardIt #-}
 guardIt :: Either HTTP2Error a -> Fiber a
 guardIt x = case x of
-    Left err    -> liftIO $ E.throwIO err
+    Left err    -> liftIO $ IE.throwIO err
     Right frame -> return frame
 
 
 {-# INLINE checkPriority #-}
 checkPriority :: Priority -> StreamId -> Fiber ()
 checkPriority p me
-  | dep == me = liftIO $ E.throwIO $ StreamError ProtocolError me
+  | dep == me = liftIO $ IE.throwIO $ StreamError ProtocolError me
   | otherwise = return ()
   where
     dep = streamDependency p
@@ -288,7 +289,7 @@ stream FrameHeaders header@FrameHeader{flags} bs _ (Open (Body q _ _)) _ = do
         return HalfClosed
       else
         -- we don't support continuation here.
-        liftIO $ E.throwIO $ ConnectionError ProtocolError "continuation in trailer is not supported"
+        liftIO $ IE.throwIO $ ConnectionError ProtocolError "continuation in trailer is not supported"
 
 stream FrameData
        header@FrameHeader{flags,payloadLength,streamId}
@@ -309,7 +310,7 @@ stream FrameData
     if endOfStream then do
         case mcl of
             Nothing -> return ()
-            Just cl -> liftIO $ when (cl /= len) $ E.throwIO $ StreamError ProtocolError streamId
+            Just cl -> liftIO $ when (cl /= len) $ IE.throwIO $ StreamError ProtocolError streamId
         liftIO $ atomically $ writeTQueue q ""
         return HalfClosed
       else
@@ -321,9 +322,9 @@ stream FrameContinuation FrameHeader{flags} frag ctx (Open (Continued rfrags siz
         !siz' = siz + BS.length frag
         !n' = n + 1
     when (siz' > 51200) $ -- fixme: hard coding: 50K
-      liftIO $ E.throwIO $ ConnectionError EnhanceYourCalm "Header is too big"
+      liftIO $ IE.throwIO $ ConnectionError EnhanceYourCalm "Header is too big"
     when (n' > 10) $ -- fixme: hard coding
-      liftIO $ E.throwIO $ ConnectionError EnhanceYourCalm "Header is too fragmented"
+      liftIO $ IE.throwIO $ ConnectionError EnhanceYourCalm "Header is too fragmented"
     if endOfHeader then do
         let !hdrblk = BS.concat $ reverse rfrags'
         tbl <- hpackDecodeHeader hdrblk ctx
@@ -342,7 +343,7 @@ stream FrameWindowUpdate header@FrameHeader{streamId} bs _ s Stream{streamWindow
       writeTVar streamWindow w1
       return w1
     when (isWindowOverflow w) $
-        liftIO $ E.throwIO $ StreamError FlowControlError streamId
+        liftIO $ IE.throwIO $ StreamError FlowControlError streamId
     return s
 
 stream FrameRSTStream header bs ctx _ strm = do
@@ -360,7 +361,7 @@ stream FramePriority header bs Context{outputQ,priorityTreeSize} s Stream{stream
     if isIdle s then do
         n <- liftIO $ atomicModifyIORef' priorityTreeSize (\x -> (x+1,x+1))
         -- fixme hard coding
-        when (n >= 20) $ liftIO $ E.throwIO $ ConnectionError EnhanceYourCalm "too many idle priority frames"
+        when (n >= 20) $ liftIO $ IE.throwIO $ ConnectionError EnhanceYourCalm "too many idle priority frames"
         liftIO $ prepare outputQ streamNumber newpri
       else do
         mx <- liftIO $ delete outputQ streamNumber oldpre
@@ -370,12 +371,12 @@ stream FramePriority header bs Context{outputQ,priorityTreeSize} s Stream{stream
     return s
 
 -- this ordering is important
-stream FrameContinuation _ _ _ _ _ = liftIO $ E.throwIO $ ConnectionError ProtocolError "continue frame cannot come here"
-stream _ _ _ _ (Open Continued{}) _ = liftIO $ E.throwIO $ ConnectionError ProtocolError "an illegal frame follows header/continuation frames"
+stream FrameContinuation _ _ _ _ _ = liftIO $ IE.throwIO $ ConnectionError ProtocolError "continue frame cannot come here"
+stream _ _ _ _ (Open Continued{}) _ = liftIO $ IE.throwIO $ ConnectionError ProtocolError "an illegal frame follows header/continuation frames"
 -- Ignore frames to streams we have just reset, per section 5.1.
 stream _ _ _ _ st@(Closed (ResetByMe _)) _ = return st
-stream FrameData FrameHeader{streamId} _ _ _ _ = liftIO $ E.throwIO $ StreamError StreamClosed streamId
-stream _ FrameHeader{streamId} _ _ _ _ = liftIO $ E.throwIO $ StreamError ProtocolError streamId
+stream FrameData FrameHeader{streamId} _ _ _ _ = liftIO $ IE.throwIO $ StreamError StreamClosed streamId
+stream _ FrameHeader{streamId} _ _ _ _ = liftIO $ IE.throwIO $ StreamError ProtocolError streamId
 
 ----------------------------------------------------------------
 

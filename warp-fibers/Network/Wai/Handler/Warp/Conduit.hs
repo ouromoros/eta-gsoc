@@ -2,7 +2,8 @@
 
 module Network.Wai.Handler.Warp.Conduit where
 
-import Control.Exception
+import Control.Concurrent.Fiber.Exception
+import Control.Exception (throwIO, assert)
 import qualified Data.ByteString as S
 import qualified Data.IORef as I
 

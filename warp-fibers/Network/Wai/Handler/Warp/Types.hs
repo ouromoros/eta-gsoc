@@ -4,7 +4,8 @@
 
 module Network.Wai.Handler.Warp.Types where
 
-import Control.Exception
+import Control.Concurrent.Fiber.Exception
+import Control.Exception (Exception)
 import qualified Data.ByteString as S
 import Data.IORef (IORef, readIORef, writeIORef, newIORef)
 import Data.Typeable (Typeable)

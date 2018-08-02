@@ -9,7 +9,8 @@ module Network.Wai.Handler.Warp.Recv (
   , spell
   ) where
 
-import qualified Control.Exception as E
+import qualified Control.Concurrent.Fiber.Exception as E
+import qualified Control.Exception as IE
 import qualified Data.ByteString as BS
 import Data.IORef
 import Foreign.C.Error (eAGAIN, getErrno, throwErrno)
@@ -51,13 +52,13 @@ makePlainReceiveN s bs0 = do
     return $ receiveN ref (receive s pool) (receiveBuf s)
 
 receiveN :: IORef ByteString -> Recv -> RecvBuf -> BufSize -> Fiber ByteString
-receiveN ref recv recvBuf size = liftIO $ E.handle handler $ fiber $ do
+receiveN ref recv recvBuf size = E.handle (liftIO . handler) $ do
     cached <- liftIO $ readIORef ref
     (bs, leftover) <- spell cached size recv recvBuf
     liftIO $ writeIORef ref leftover
     return bs
  where
-   handler :: E.SomeException -> IO ByteString
+   handler :: IE.SomeException -> IO ByteString
    handler _ = return ""
 
 ----------------------------------------------------------------

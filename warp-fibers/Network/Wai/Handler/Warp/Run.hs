@@ -13,7 +13,8 @@ import "iproute" Data.IP (toHostAddress, toHostAddress6)
 import Control.Arrow (first)
 -- import qualified Control.Concurrent as Conc (yield)
 import qualified Control.Concurrent.Fiber as Conc (yield)
-import Control.Exception as E
+import Control.Concurrent.Fiber.Exception as E
+import Control.Exception (fromException, throwIO, toException)
 import qualified Data.ByteString as S
 import Data.Char (chr)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef, atomicModifyIORef')
@@ -98,11 +99,11 @@ runEnv p app = do
 -- calls 'runSettingsSocket'.
 runSettings :: Settings -> Application -> IO ()
 runSettings set app = forkFiberAndWait $ withSocketsDo $
-    liftIO $ bracket
-        (fiber $ bindPortTCP (settingsPort set) (settingsHost set))
-        (fiber . close)
+    bracket
+        (bindPortTCP (settingsPort set) (settingsHost set))
+        close
         (\socket -> do
-            fiber $ setSocketCloseOnExec socket
+            setSocketCloseOnExec socket
             runSettingsSocket set socket app)
 
 -- | This installs a shutdown handler for the given socket and
@@ -116,15 +117,16 @@ runSettings set app = forkFiberAndWait $ withSocketsDo $
 --
 -- Note that the 'settingsPort' will still be passed to 'Application's via the
 -- 'serverPort' record.
-runSettingsSocket :: Settings -> Socket -> Application -> IO ()
+runSettingsSocket :: Settings -> Socket -> Application -> Fiber ()
 runSettingsSocket set socket app = do
-    settingsInstallShutdownHandler set closeListenSocket
+    liftIO $ settingsInstallShutdownHandler set closeListenSocket
     runSettingsConnection set getConn app
   where
     getConn = do
 -- #if WINDOWS
 --         (s, sa) <- windowsThreadBlockHack $ accept socket
 -- #else
+        -- (s, sa) <- liftIO $ fiber $ accept socket
         (s, sa) <- accept socket
 -- #endif
         setSocketCloseOnExec s
@@ -144,7 +146,7 @@ runSettingsSocket set socket app = do
 -- in a separate worker thread instead of the main server loop.
 --
 -- Since 1.3.5
-runSettingsConnection :: Settings -> Fiber (Connection, SockAddr) -> Application -> IO ()
+runSettingsConnection :: Settings -> Fiber (Connection, SockAddr) -> Application -> Fiber ()
 runSettingsConnection set getConn app = runSettingsConnectionMaker set getConnMaker app
   where
     getConnMaker = do
@@ -153,7 +155,7 @@ runSettingsConnection set getConn app = runSettingsConnectionMaker set getConnMa
 
 -- | This modifies the connection maker so that it returns 'TCP' for 'Transport'
 -- (i.e. plain HTTP) then calls 'runSettingsConnectionMakerSecure'.
-runSettingsConnectionMaker :: Settings -> Fiber (Fiber Connection, SockAddr) -> Application -> IO ()
+runSettingsConnectionMaker :: Settings -> Fiber (Fiber Connection, SockAddr) -> Application -> Fiber ()
 runSettingsConnectionMaker x y =
     runSettingsConnectionMakerSecure x (toTCP <$> y)
   where
@@ -167,8 +169,8 @@ runSettingsConnectionMaker x y =
 -- or HTTP over TLS.
 --
 -- Since 2.1.4
-runSettingsConnectionMakerSecure :: Settings -> Fiber (Fiber (Connection, Transport), SockAddr) -> Application -> IO ()
-runSettingsConnectionMakerSecure set getConnMaker app = fiber $ do
+runSettingsConnectionMakerSecure :: Settings -> Fiber (Fiber (Connection, Transport), SockAddr) -> Application -> Fiber ()
+runSettingsConnectionMakerSecure set getConnMaker app = do
     settingsBeforeMainLoop set
     counter <- newCounter
     withII0 (acceptConnection set getConnMaker app counter)
@@ -186,10 +188,10 @@ runSettingsConnectionMakerSecure set getConnMaker app = fiber $ do
     !timeoutInSeconds = settingsTimeout set * 1000000
     withTimeoutManager f = case settingsManager set of
         Just tm -> f tm
-        Nothing -> liftIO $ bracket
-                   (fiber $ T.initialize timeoutInSeconds)
-                   (fiber . T.stopManager)
-                   (fiber . f)
+        Nothing -> bracket
+                   (T.initialize timeoutInSeconds)
+                   T.stopManager
+                   f
 
 -- Note that there is a thorough discussion of the exception safety of the
 -- following code at: https://github.com/yesodweb/wai/issues/146
@@ -239,7 +241,9 @@ acceptConnection set getConnMaker app counter ii0 = do
                 acceptLoop
 
     acceptNewConnection = do
-        ex <- liftIO $ try (fiber getConnMaker)
+        -- x <- getConnMaker
+        -- return $ Just x
+        ex <- try getConnMaker
         case ex of
             Right x -> return $ Just x
             Left e -> do
@@ -250,6 +254,15 @@ acceptConnection set getConnMaker app counter ii0 = do
                     else do
                         settingsOnException set Nothing $ toException e
                         return Nothing
+        -- (fiber getConnMaker >>= (return . Just)) `E.catch`
+        --     \e -> do
+        --         let eConnAborted = getErrno eCONNABORTED
+        --             getErrno (Errno cInt) = cInt
+        --         if ioe_errno e == Just eConnAborted
+        --             then fiber acceptNewConnection
+        --             else do
+        --                 fiber $ settingsOnException set Nothing $ toException e
+        --                 return Nothing
 
 -- Fork a new worker thread for this connection maker, and ask for a
 -- function to unmask (i.e., allow async exceptions to be thrown).
@@ -263,10 +276,10 @@ fork :: Settings
 fork set mkConn addr app counter ii0 = liftIO $ settingsFork set $ \unmask ->
     -- Call the user-supplied on exception code if any
     -- exceptions are thrown.
-    liftIO $ handle (fiber . settingsOnException set Nothing) .
+    handle (settingsOnException set Nothing) .
     -- Allocate a new IORef indicating whether the connection has been
     -- closed, to avoid double-freeing a connection
-    liftIO $ withClosedRef $ \ref ->
+    withClosedRef $ \ref ->
         -- Run the connection maker to get a new connection, and ensure
         -- that the connection is closed. If the mkConn call throws an
         -- exception, we will leak the connection. If the mkConn call is
@@ -277,21 +290,21 @@ fork set mkConn addr app counter ii0 = liftIO $ settingsFork set $ \unmask ->
         -- We grab the connection before registering timeouts since the
         -- timeouts will be useless during connection creation, due to the
         -- fact that async exceptions are still masked.
-        bracket (fiber mkConn) (fiber . cleanUp ref) (serve unmask ref)
+        bracket mkConn (cleanUp ref) (serve unmask ref)
   where
-    withClosedRef inner = newIORef False >>= inner
+    withClosedRef inner = liftIO (newIORef False) >>= inner
 
     closeConn ref conn = do
         isClosed <- liftIO $ atomicModifyIORef' ref $ \x -> (True, x)
         unless isClosed (connClose conn)
 
-    cleanUp ref (conn, _) = liftIO $ (fiber $ closeConn ref conn) `finally` (fiber $ connFree conn)
+    cleanUp ref (conn, _) = (closeConn ref conn) `finally` (connFree conn)
 
     -- We need to register a timeout handler for this thread, and
     -- cancel that handler as soon as we exit. We additionally close
     -- the connection immediately in case the child thread catches the
     -- async exception or performs some long-running cleanup action.
-    serve unmask ref (conn, transport) = bracket (fiber register) (fiber . cancel) $ \th -> fiber $ do
+    serve unmask ref (conn, transport) = bracket register cancel $ \th -> do
         let ii1 = toInternalInfo1 ii0 th
         -- We now have fully registered a connection close handler in
         -- the case of all exceptions, so it is safe to one again
@@ -299,10 +312,10 @@ fork set mkConn addr app counter ii0 = liftIO $ settingsFork set $ \unmask ->
         unmask
             -- Call the user-supplied code for connection open and
             -- close events
-           (liftIO $ bracket (fiber $ onOpen addr) (fiber . onClose addr) $ \goingon ->
+           (bracket (onOpen addr) (onClose addr) $ \goingon ->
            -- Actually serve this connection.  bracket with closeConn
            -- above ensures the connection is closed.
-           when goingon $ fiber $ serveConnection conn ii1 addr transport set app)
+           when goingon $ serveConnection conn ii1 addr transport set app)
       where
         register = T.registerKillThread (timeoutManager0 ii0)
                                         (closeConn ref conn)
@@ -341,14 +354,14 @@ serveConnection conn ii1 origAddr transport settings app = do
         liftIO $ writeIORef istatus True
         leftoverSource src bs
         addr <- getProxyProtocolAddr src
-        liftIO ((fiber $ http1 True addr istatus src) `E.catch` \e ->
-          fiber $ case fromException e of
+        http1 True addr istatus src `E.catch` \e ->
+          case fromException e of
             -- See comment below referencing
             -- https://github.com/yesodweb/wai/issues/618
             Just NoKeepAliveRequest -> return ()
             Nothing -> do
               sendErrorResponse addr istatus e
-              liftIO $ throwIO e)
+              liftIO $ throwIO e
   where
     getProxyProtocolAddr src =
         case settingsProxyProtocol settings of
@@ -410,13 +423,13 @@ serveConnection conn ii1 origAddr transport settings app = do
     http1 firstRequest addr istatus src = do
         (req', mremainingRef, idxhdr, nextBodyFlush, ii) <- recvRequest firstRequest settings conn ii1 addr src
         let req = req' { isSecure = isTransportSecure transport }
-        keepAlive <- liftIO ((fiber $ processRequest istatus src req mremainingRef idxhdr nextBodyFlush ii)
-            `E.catch` \e -> fiber $ do
+        keepAlive <- processRequest istatus src req mremainingRef idxhdr nextBodyFlush ii
+            `E.catch` \e -> do
                 -- Call the user-supplied exception handlers, passing the request.
                 sendErrorResponse addr istatus e
                 settingsOnException settings (Just req) e
                 -- Don't throw the error again to prevent calling settingsOnException twice.
-                return False)
+                return False
 
         -- When doing a keep-alive connection, the other side may just
         -- close the connection. We don't want to treat that as an

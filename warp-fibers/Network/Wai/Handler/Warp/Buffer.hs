@@ -18,6 +18,7 @@ import Data.ByteString.Unsafe (unsafeTake, unsafeDrop)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import qualified Data.Streaming.ByteString.Builder.Buffer as B (Buffer (..))
 import Foreign.ForeignPtr
+import GHC.ForeignPtr (touchForeignPtr, unsafeForeignPtrToPtr)
 import Foreign.Marshal.Alloc (mallocBytes, free, finalizerFree)
 import Foreign.Ptr (castPtr, plusPtr)
 
@@ -74,7 +75,12 @@ putBuffer pool buffer = liftIO $ writeIORef pool buffer
 {-# INLINE putBuffer #-}
 
 withForeignBuffer :: ByteString -> ((Buffer, BufSize) -> Fiber Int) -> Fiber Int
-withForeignBuffer (PS ps s l) f = liftIO $ withForeignPtr ps (fiber . \p -> f (castPtr p `plusPtr` s, l))
+withForeignBuffer (PS ps s l) f = withForeignPtr' ps (\p -> f (castPtr p `plusPtr` s, l))
+    where
+        withForeignPtr' fo io
+            = do r <- io (unsafeForeignPtrToPtr fo)
+                 liftIO $ touchForeignPtr fo
+                 return r
 {-# INLINE withForeignBuffer #-}
 
 withBufferPool :: BufferPool -> ((Buffer, BufSize) -> Fiber Int) -> Fiber ByteString

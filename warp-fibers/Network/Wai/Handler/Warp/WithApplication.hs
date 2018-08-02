@@ -48,7 +48,7 @@ withApplicationSettings settings' mkApp action = do
               = (liftIO $ notify started ()) >> settingsBeforeMainLoop settings'
           }
     result <- race
-      (runSettingsSocket settings sock app)
+      (fiber $ runSettingsSocket settings sock app)
       (waitFor started >> action port)
     case result of
       Left () -> throwIO $ ErrorCall "Unexpected: runSettingsSocket exited"

@@ -5,7 +5,7 @@ module Network.Wai.Handler.Warp.HTTP2 (isHTTP2, http2) where
 
 -- import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.Fiber
-import qualified Control.Exception as E
+import qualified Control.Concurrent.Fiber.Exception as E
 import Network.HTTP2
 -- import Network.Socket (SockAddr)
 import Control.Concurrent.Fiber.Network (SockAddr)
@@ -49,7 +49,7 @@ http2 conn ii1 addr transport settings readN app = do
         -- Sender
         -- frameSender is the main thread because it ensures to send
         -- a goway frame.
-        liftIO $ (fiber $ frameSender ctx conn settings mgr) `E.finally` (fiber $ do
+        (frameSender ctx conn settings mgr) `E.finally` (do
             clearContext ctx
             stop mgr
             liftIO $ killThread tid)

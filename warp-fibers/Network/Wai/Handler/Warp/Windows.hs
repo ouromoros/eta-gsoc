@@ -4,7 +4,7 @@ module Network.Wai.Handler.Warp.Windows where
   -- ) where
 
 -- #if WINDOWS
--- import Control.Exception
+-- import Control.Concurrent.Fiber.Exception
 -- import Control.Concurrent.MVar
 -- import Control.Concurrent
 

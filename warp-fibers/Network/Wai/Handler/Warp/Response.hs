@@ -14,7 +14,8 @@ module Network.Wai.Handler.Warp.Response (
   ) where
 
 import Data.ByteString.Builder.HTTP.Chunked (chunkedTransferEncoding, chunkedTransferTerminator)
-import qualified Control.Exception as E
+import qualified Control.Concurrent.Fiber.Exception as E
+import qualified Control.Exception as IE
 import Data.Array ((!))
 import qualified Data.ByteString as S
 import Data.ByteString.Builder (byteString, Builder, toLazyByteString, lazyByteString)
@@ -279,9 +280,9 @@ sendRsp conn ii ver s0 hs0 (RspFile path (Just part) _ isHead hook) =
 -- Simple WAI applications.
 -- Status is ignored
 sendRsp conn ii ver _ hs0 (RspFile path Nothing idxhdr isHead hook) = do
-    efinfo <- liftIO $ E.try $ fiber $ getFileInfo ii path
+    efinfo <- E.try $ getFileInfo ii path
     case efinfo of
-        Left (_ex :: E.IOException) ->
+        Left (_ex :: IE.IOException) ->
 #ifdef WARP_DEBUG
           print _ex >>
 #endif

@@ -1,10 +1,7 @@
 -- Echo server program
 module Main where
 
-import Control.Monad (unless)
-import qualified Data.ByteString as S
 import qualified Data.ByteString.Char8 as B
-import Control.Concurrent (threadDelay)
 import Control.Concurrent.Fiber
 import Control.Concurrent.Fiber.Network
 import Control.Concurrent.Fiber.Network.Internal (fiber)
@@ -18,12 +15,7 @@ forkFiberAndWait f = do
     forkFiber (f >> (liftIO $ IM.putMVar m ()))
     IM.takeMVar m
     return ()
--- This mesteriously would throw `ClosedByInterruptException`
--- So maybe there are still some problems with concurrency
--- main = forkFiber main' >> loop
---   where loop = do
---           threadDelay 100
---           loop
+
 main = forkFiberAndWait main'
 
 main' :: Fiber ()
@@ -33,8 +25,7 @@ main' = withSocketsDo $ do
 
 mainLoop :: Socket -> Fiber ()
 mainLoop sock = do
-    -- conn <- accept sock     -- accept a connection and handle it
-    conn <- liftIO $ runFiber $ accept sock
+    conn <- accept sock
     liftIO $ forkFiber $ runConn conn            -- run our server's logic
     mainLoop sock           -- repeat
  

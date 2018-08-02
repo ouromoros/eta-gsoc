@@ -6,7 +6,8 @@ module Network.Wai.Handler.Warp.Settings where
 
 -- import Control.Concurrent (forkIOWithUnmask)
 import Control.Concurrent.Fiber
-import Control.Exception
+import Control.Concurrent.Fiber.Exception
+import Control.Exception (SomeException, fromException, AsyncException(..))
 import Data.ByteString.Builder (byteString)
 import qualified Data.ByteString.Char8 as C8
 import Data.Streaming.Network (HostPreference)
@@ -191,4 +192,5 @@ exceptionResponseForDebug e =
 
 forkFiberWithUnmask :: ((forall a . Fiber a -> Fiber a) -> Fiber ()) -> IO ()
 forkFiberWithUnmask f = void $ forkFiber (f unmaskFiber)
-  where unmaskFiber = liftIO . unsafeUnmask . fiber
+  -- where unmaskFiber = liftIO . unsafeUnmask . fiber
+  where unmaskFiber = id

@@ -6,7 +6,8 @@ module Network.Wai.Handler.Warp.HTTP2.Types where
 
 -- import Control.Concurrent (forkIO)
 import Control.Concurrent.STM
-import Control.Exception (SomeException, bracket)
+import Control.Concurrent.Fiber.Exception (bracket)
+import Control.Exception (SomeException)
 import qualified Data.ByteString as BS
 import Data.ByteString.Builder (Builder)
 import Data.IORef
@@ -259,13 +260,13 @@ updateAllStreamWindow adst (StreamTable ref) = liftIO $ do
 
 {-# INLINE forkAndEnqueueWhenReady #-}
 forkAndEnqueueWhenReady :: Fiber () -> PriorityTree Output -> Output -> Manager -> Fiber ()
-forkAndEnqueueWhenReady wait outQ out mgr = liftIO $ bracket setup teardown $ \_ ->
+forkAndEnqueueWhenReady wait outQ out mgr = bracket setup teardown $ \_ ->
     void . forkFiber $ do
         wait
         enqueueOutput outQ out
   where
-    setup = fiber $ addMyId mgr
-    teardown _ = fiber $ deleteMyId mgr
+    setup = addMyId mgr
+    teardown _ = deleteMyId mgr
 
 {-# INLINE enqueueOutput #-}
 enqueueOutput :: PriorityTree Output -> Output -> Fiber ()
