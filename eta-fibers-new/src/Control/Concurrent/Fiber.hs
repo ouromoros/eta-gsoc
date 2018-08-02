@@ -104,6 +104,7 @@ instance Functor Fiber where
                  
 instance Semigroup a => Semigroup (Fiber a) where
     (<>) x y = (<>) <$> x <*> y
+
 instance Monoid a => Monoid (Fiber a) where
     mappend x y = mappend <$> x <*> y
     mempty      = return mempty

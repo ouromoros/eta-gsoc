@@ -18,12 +18,7 @@ public class PrimOps  {
     public static void yieldFiber(StgContext context, int block, Closure cont) {
         TSO tso = context.currentTSO;
         tso.whatNext = (block == 1)? ThreadBlock : ThreadYield;
-        Closure oldClosure = tso.closure;
-        if (oldClosure instanceof EvalLazyIO) {
-            ((EvalLazyIO) oldClosure).p = cont;
-        } else {
-            tso.closure = Closures.evalLazyIO(cont);
-        }
+        tso.closure = cont;
         throw Fiber.yieldException.get();
     }
 
