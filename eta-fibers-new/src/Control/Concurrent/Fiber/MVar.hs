@@ -1,6 +1,6 @@
 {-# LANGUAGE UnboxedTuples, MagicHash #-}
 module Control.Concurrent.Fiber.MVar
-  (MVar, takeMVar, putMVar)
+  (MVar, takeMVar, putMVar, readMVar)
 where
 
 import GHC.Base
@@ -30,6 +30,16 @@ putMVar (MVar m) x =   go
                  (# s', _  #) ->
                    case awakenMVarListeners# m s' of
                      s'' -> (# s'', () #)
+
+readMVar :: MVar a -> Fiber a
+readMVar (MVar m) = go
+  where
+    go = liftIO $ IO $ \s ->
+          case tryReadMVar# m s of
+            (# s', 0#, _ #) -> 
+              case addMVarListener# m s' of
+                s'' -> unFiber (block >> go) s''
+            (# s', _, a #) -> (# s', a #)
 
 foreign import prim "eta.fibers.PrimOps.addMVarListener"
   addMVarListener# :: MVar# s a -> State# s -> State# s
