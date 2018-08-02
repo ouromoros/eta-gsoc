@@ -54,6 +54,7 @@ module Control.Concurrent.Fiber.Network
   ,sendBuf
   ,sendMany
   ,recv
+  ,recvBuf
   ,close
   ,socket
   ,bind
@@ -92,10 +93,12 @@ import Data.Streaming.Network.Internal (HostPreference(..))
 import Network.Socket (AddrInfo(..), SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..), AddrInfoFlag(..), NameInfoFlag(..), defaultProtocol)
 
 import Data.ByteString (ByteString)
-import Data.ByteString.Internal (createAndTrim)
-import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
+-- import Data.ByteString.Internal (createAndTrim)
+-- import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
+import Control.Concurrent.Fiber.Network.Internal1 (createAndTrim, unsafeUseAsCStringLen)
 import Control.Monad
-import Control.Exception (throwIO, catch, IOException, bracketOnError, try)
+import Control.Exception (throwIO, IOException)
+import Control.Concurrent.Fiber.Exception (catch, try, bracketOnError)
 import System.IO.Error 
 import GHC.Conc (closeFdWith) -- blocking?
 import GHC.IO.Exception
@@ -132,7 +135,13 @@ c_socket family t p = liftIO $ c_socket' family t p
 c_sendto c p s sa = liftIO $ c_sendto' c p s sa
 
 newMVar = liftIO . M.newMVar
-modifyMVar_ m f = liftIO $ M.modifyMVar_ m (\x -> fiber (f x))
+-- modifyMVar_ m f = liftIO $ M.modifyMVar_ m (\x -> fiber (f x))
+-- FIX ME
+modifyMVar_ m f = do
+  v <- takeMVar m
+  v' <- f v
+  putMVar m v'
+
 getAddrInfo mHints node service = liftIO $ NS.getAddrInfo mHints node service
 getNameInfo f h s addr = liftIO $ NS.getNameInfo f h s addr
 
@@ -231,10 +240,11 @@ recv :: Socket         -- ^ Connected socket
      -> Fiber ByteString  -- ^ Data received
 recv sock nbytes
     | nbytes < 0 = liftIO $ ioError (mkInvalidRecvArgError "Control.Concurre.Fiber.Network.ByteString.recv")
-    | otherwise  = liftIO $ createAndTrim nbytes $ \ptr ->
+    -- fix here
+    | otherwise  = createAndTrim nbytes $ \ptr ->
         catch
-          (fiber (recvBuf sock ptr nbytes))
-          (\e -> if isEOFError e then return 0 else throwIO e)
+          (recvBuf sock ptr nbytes)
+          (\e -> if isEOFError e then return 0 else liftIO $ throwIO e)
 
 recvBuf :: Socket -> Ptr Word8 -> Int -> Fiber Int
 recvBuf sock@(MkSocket s _family _stype _protocol _status) ptr nbytes
@@ -258,8 +268,8 @@ recvBufFrom sock@(MkSocket s family _stype _protocol _status) ptr nbytes
 send :: Socket      -- ^ Connected socket
      -> ByteString  -- ^ Data to send
      -> Fiber Int      -- ^ Number of bytes sent
-send sock xs = liftIO $ unsafeUseAsCStringLen xs $ \(str, len) ->
-  fiber $ sendBuf sock (castPtr str) len
+send sock xs = unsafeUseAsCStringLen xs $ \(str, len) ->
+  sendBuf sock (castPtr str) len
 
 sendAll :: Socket      -- ^ Connected socket
         -> ByteString  -- ^ Data to send
@@ -296,7 +306,7 @@ sendTo :: Socket      -- ^ Socket
        -> SockAddr    -- ^ Recipient address
        -> Fiber Int      -- ^ Number of bytes sent
 sendTo sock xs addr =
-    liftIO $  unsafeUseAsCStringLen xs $ \(str, len) -> fiber $ sendBufTo sock str len addr
+    unsafeUseAsCStringLen xs $ \(str, len) -> sendBufTo sock str len addr
 
 sendAllTo :: Socket      -- ^ Socket
           -> ByteString  -- ^ Data to send
@@ -346,7 +356,7 @@ socket family stype protocol = do
     -- The IPv6Only option is only supported on Windows Vista and later,
     -- so trying to change it might throw an error.
     when (family == AF_INET6 && (stype == Stream || stype == Datagram)) $
-      catch (setSocketOption sock IPv6Only 0) $ (\(_ :: IOException) -> return ())
+      catch (liftIO $ setSocketOption sock IPv6Only 0) $ (\(_ :: IOException) -> return ())
 # else
     when (family == AF_INET6 && (stype == Stream || stype == Datagram)) $
       setSocketOption sock IPv6Only 0 `onException` close sock
@@ -391,45 +401,45 @@ bind (MkSocket s _family _stype _protocol socketStatus) addr = do
        _status <- c_bind s saddr
        return (Bound addr)
 
-#if defined(HAVE_STRUCT_UCRED) || defined(HAVE_GETPEEREID)
+-- #if defined(HAVE_STRUCT_UCRED) || defined(HAVE_GETPEEREID)
 -- | Returns the processID, userID and groupID of the socket's peer.
 --
 -- Only available on platforms that support SO_PEERCRED or GETPEEREID(3)
 -- on domain sockets.
 -- GETPEEREID(3) returns userID and groupID. processID is always 0.
-getPeerCred :: Socket -> Fiber (CUInt, CUInt, CUInt)
-getPeerCred sock = do
-#ifdef HAVE_STRUCT_UCRED
-  let fd = fdSocket sock
-  let sz = (#const sizeof(struct ucred))
-  liftIO $ allocaBytes sz $ \ ptr_cr ->
-   with (fromIntegral sz) $ \ ptr_sz -> fiber $ do
-     _ <- ($) throwSocketErrorIfMinus1Retry "Control.Concurrent.Fiber.Network.getPeerCred" $
-       c_getsockopt fd (#const SOL_SOCKET) (#const SO_PEERCRED) ptr_cr ptr_sz
-     pid <- liftIO $ (#peek struct ucred, pid) ptr_cr
-     uid <- liftIO $ (#peek struct ucred, uid) ptr_cr
-     gid <- liftIO $ (#peek struct ucred, gid) ptr_cr
-     return (pid, uid, gid)
-#else
-  (uid,gid) <- getPeerEid sock
-  return (0,uid,gid)
-#endif
+-- getPeerCred :: Socket -> Fiber (CUInt, CUInt, CUInt)
+-- getPeerCred sock = do
+-- #ifdef HAVE_STRUCT_UCRED
+--   let fd = fdSocket sock
+--   let sz = (#const sizeof(struct ucred))
+--   liftIO $ allocaBytes sz $ \ ptr_cr ->
+--    with (fromIntegral sz) $ \ ptr_sz -> fiber $ do
+--      _ <- ($) throwSocketErrorIfMinus1Retry "Control.Concurrent.Fiber.Network.getPeerCred" $
+--        c_getsockopt fd (#const SOL_SOCKET) (#const SO_PEERCRED) ptr_cr ptr_sz
+--      pid <- liftIO $ (#peek struct ucred, pid) ptr_cr
+--      uid <- liftIO $ (#peek struct ucred, uid) ptr_cr
+--      gid <- liftIO $ (#peek struct ucred, gid) ptr_cr
+--      return (pid, uid, gid)
+-- #else
+--   (uid,gid) <- getPeerEid sock
+--   return (0,uid,gid)
+-- #endif
 
-#ifdef HAVE_GETPEEREID
--- | The getpeereid() function returns the effective user and group IDs of the
--- peer connected to a UNIX-domain socket
-getPeerEid :: Socket -> Fiber (CUInt, CUInt)
-getPeerEid sock = do
-  let fd = fdSocket sock
-  liftIO $ alloca $ \ ptr_uid ->
-    alloca $ \ ptr_gid -> fiber $ do
-      throwSocketErrorIfMinus1Retry_ "Control.Concurrent.Fiber.Network.getPeerEid" $
-        c_getpeereid fd ptr_uid ptr_gid
-      uid <- liftIO $ peek ptr_uid
-      gid <- liftIO $ peek ptr_gid
-      return (uid, gid)
-#endif
-#endif
+-- #ifdef HAVE_GETPEEREID
+-- -- | The getpeereid() function returns the effective user and group IDs of the
+-- -- peer connected to a UNIX-domain socket
+-- getPeerEid :: Socket -> Fiber (CUInt, CUInt)
+-- getPeerEid sock = do
+--   let fd = fdSocket sock
+--   liftIO $ alloca $ \ ptr_uid ->
+--     alloca $ \ ptr_gid -> fiber $ do
+--       throwSocketErrorIfMinus1Retry_ "Control.Concurrent.Fiber.Network.getPeerEid" $
+--         c_getpeereid fd ptr_uid ptr_gid
+--       uid <- liftIO $ peek ptr_uid
+--       gid <- liftIO $ peek ptr_gid
+--       return (uid, gid)
+-- #endif
+-- #endif
 
 defaultHints :: AddrInfo
 defaultHints = AddrInfo {
@@ -532,15 +542,15 @@ bindPortGenEx sockOpts sockettype p s = do
         theBody addr =
           -- Is this Ok?
           bracketOnError
-          (fiber (socket (NS.addrFamily addr) (NS.addrSocketType addr) (NS.addrProtocol addr)))
-          (fiber . close)
+          (socket (NS.addrFamily addr) (NS.addrSocketType addr) (NS.addrProtocol addr))
+          close
           (\sock -> do
-              mapM_ (\(opt,v) -> fiber $ setSocketOption sock opt v) sockOpts
+              mapM_ (\(opt,v) -> setSocketOption sock opt v) sockOpts
               --------
-              fiber $ bind sock (NS.addrAddress addr)
+              bind sock (NS.addrAddress addr)
               return sock
           )
-    liftIO $ tryAddrs addrs'
+    tryAddrs addrs'
 
 bindRandomPortGen :: SocketType -> HostPreference -> Fiber (Int, Socket)
 bindRandomPortGen sockettype s =
@@ -548,7 +558,7 @@ bindRandomPortGen sockettype s =
   where
     loop cnt = do
         port <- liftIO $ DSN.getUnassignedPort
-        esocket <- liftIO $ try $ fiber $ bindPortGen sockettype port s
+        esocket <- try $ bindPortGen sockettype port s
         case esocket :: Either IOException Socket of
             Left e
                 | cnt <= 1 -> error $ concat
