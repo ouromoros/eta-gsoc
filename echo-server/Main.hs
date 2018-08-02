@@ -4,7 +4,6 @@ module Main where
 import qualified Data.ByteString.Char8 as B
 import Control.Concurrent.Fiber
 import Control.Concurrent.Fiber.Network
-import Control.Concurrent.Fiber.Network.Internal (fiber)
 import Data.Streaming.Network.Internal (HostPreference(..))
 import qualified Control.Concurrent.MVar as IM
 import Control.Monad.IO.Class (liftIO)
