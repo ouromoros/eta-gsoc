@@ -2,7 +2,7 @@
 
 module WithApplicationSpec where
 
-import           Control.Exception
+import           Control.Concurrent.Fiber.Exception
 import           Network.HTTP.Types
 import           Network.Wai
 import           System.Environment

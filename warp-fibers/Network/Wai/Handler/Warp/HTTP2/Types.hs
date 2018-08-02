@@ -17,7 +17,7 @@ import Network.HPACK hiding (Buffer)
 import qualified Network.HTTP.Types as H
 import Network.HTTP2
 import Network.HTTP2.Priority
-import Network.Wai (Request, FilePart)
+import Network.Wai (FilePart)
 
 import Network.Wai.Handler.Warp.HTTP2.Manager
 import Network.Wai.Handler.Warp.Imports
@@ -126,7 +126,7 @@ data Context = Context {
 newContext :: Fiber Context
 newContext = liftIO $ Context <$> newIORef defaultSettings
                      <*> newIORef False
-                     <*> fiber newStreamTable
+                     <*> newStreamTable
                      <*> newIORef 0
                      <*> newIORef 0
                      <*> newIORef Nothing
@@ -237,8 +237,8 @@ closed Context{concurrency,streamTable} Stream{streamState,streamNumber} cc = do
 
 newtype StreamTable = StreamTable (IORef (IntMap Stream))
 
-newStreamTable :: Fiber StreamTable
-newStreamTable = liftIO $ StreamTable <$> newIORef M.empty
+newStreamTable :: IO StreamTable
+newStreamTable = StreamTable <$> newIORef M.empty
 
 insert :: StreamTable -> M.Key -> Stream -> Fiber ()
 insert (StreamTable ref) k v = liftIO $ atomicModifyIORef' ref $ \m ->

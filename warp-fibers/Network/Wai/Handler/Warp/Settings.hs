@@ -18,7 +18,7 @@ import GHC.IO.Exception (IOErrorType(..))
 import qualified Network.HTTP.Types as H
 -- import Network.Socket (SockAddr)
 import Control.Concurrent.Fiber.Network (SockAddr)
-import Network.Wai
+import Network.Wai hiding (Request)
 import qualified Paths_warp_fibers
 import System.IO (stderr)
 import System.IO.Error (ioeGetErrorType)

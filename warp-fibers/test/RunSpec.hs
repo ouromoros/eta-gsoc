@@ -6,8 +6,8 @@ module RunSpec (main, spec, withApp, connectTo) where
 
 import Control.Concurrent (forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar (newEmptyMVar, takeMVar, putMVar)
-import qualified Control.Exception as E
-import Control.Exception.Lifted (bracket, try, IOException, onException)
+import qualified Control.Concurrent.Fiber.Exception as E
+import Control.Concurrent.Fiber.Exception.Lifted (bracket, try, IOException, onException)
 import Control.Monad (forM_, replicateM_, unless)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.ByteString (ByteString, hPutStr, hGetSome)

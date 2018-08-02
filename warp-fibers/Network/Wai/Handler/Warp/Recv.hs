@@ -15,7 +15,8 @@ import qualified Data.ByteString as BS
 import Data.IORef
 import Foreign.C.Error (eAGAIN, getErrno, throwErrno)
 import Foreign.C.Types
-import Foreign.ForeignPtr (withForeignPtr)
+-- import Foreign.ForeignPtr (withForeignPtr)
+import Control.Concurrent.Fiber.Network.Internal1 (withForeignPtr)
 import Foreign.Ptr (Ptr, castPtr, plusPtr)
 -- import GHC.Conc (threadWaitRead)
 -- import Control.Concurrent.Fiber.Network.Internal (threadWaitRead)
@@ -70,7 +71,7 @@ spell init0 siz0 recv recvBuf
   | siz0 <= 4096 = loop [init0] (siz0 - len0)
   | otherwise    = do
       bs@(PS fptr _ _) <- mallocBS siz0
-      liftIO $ withForeignPtr fptr $ \ptr -> fiber $ do
+      withForeignPtr fptr $ \ptr -> do
           ptr' <- copy ptr init0
           full <- recvBuf ptr' (siz0 - len0)
           if full then

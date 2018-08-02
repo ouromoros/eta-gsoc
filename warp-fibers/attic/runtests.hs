@@ -8,7 +8,7 @@ import Test.HUnit hiding (Test)
 
 import Network.Wai.Handler.Warp (takeHeaders, InvalidRequest (..), readInt)
 import Data.Enumerator (run_, ($$), enumList, run)
-import Control.Exception (fromException)
+import Control.Concurrent.Fiber.Exception (fromException)
 import qualified Data.ByteString.Char8 as S8
 
 main :: IO ()

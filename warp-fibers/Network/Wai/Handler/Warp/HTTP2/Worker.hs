@@ -23,7 +23,7 @@ import Network.HPACK.Token
 import qualified Network.HTTP.Types as H
 import Network.HTTP2
 import Network.HTTP2.Priority
-import Network.Wai
+import Network.Wai hiding (Application, Request(..))
 import qualified Network.Wai.Handler.Warp.Timeout as Timeout
 import Network.Wai.Internal (Response(..), ResponseReceived(..), ResponseReceived(..))
 
@@ -223,11 +223,11 @@ response settings ctx@Context{outputQ} mgr ii reqvt tconf strm req rsp = case rs
             !out = Output strm rspn ii tell h2data rspnOrWait
         enqueueOutput outputQ out
         let push b = do
-              T.pause th
-              liftIO $ atomically $ writeTBQueue tbq (SBuilder b)
-              T.resume th
+              T.pause' th
+              atomically $ writeTBQueue tbq (SBuilder b)
+              T.resume' th
             flush  = atomically $ writeTBQueue tbq SFlush
-        _ <- liftIO $ strmbdy (fiber . push) flush
+        _ <- liftIO $ strmbdy push flush
         liftIO $ atomically $ writeTBQueue tbq SFinish
         deleteMyId mgr
         return ResponseReceived
@@ -248,15 +248,15 @@ worker ctx@Context{inputQ,controlQ} set app responder tm = do
             T.resume th
             T.tickle th
             let !ii' = ii { threadHandle = th }
-                !body = liftIO $ requestBody req
+                !body = requestBody req
                 !body' = do
                     T.pause th
                     bs <- body
                     T.resume th
                     return bs
                 !vaultValue = Vault.insert pauseTimeoutKey (Timeout.pause th) $ vault req
-                !req' = req { vault = vaultValue, requestBody = (fiber body') }
-            liftIO $ app req' (fiber . responder ii' reqvt tcont strm req')
+                !req' = req { vault = vaultValue, requestBody = body' }
+            app req' (responder ii' reqvt tcont strm req')
         cont1 <- case ex of
             Right ResponseReceived -> return True
             Left  e@(SomeException _)

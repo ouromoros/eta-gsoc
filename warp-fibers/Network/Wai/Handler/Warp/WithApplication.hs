@@ -16,7 +16,7 @@ import           Control.Monad (when)
 -- import           Control.Concurrent.Fiber.Network (bindRandomPortTCP)
 -- import           Network.Socket
 import           Control.Concurrent.Fiber.Network
-import           Network.Wai
+import           Network.Wai hiding (Application)
 import           Network.Wai.Handler.Warp.Run
 import           Network.Wai.Handler.Warp.Settings
 import           Network.Wai.Handler.Warp.Types
@@ -74,16 +74,17 @@ testWithApplication = testWithApplicationSettings defaultSettings
 --
 -- @since 3.2.7
 testWithApplicationSettings :: Settings -> IO Application -> (Port -> IO a) -> IO a
-testWithApplicationSettings settings mkApp action = do
-  callingThread <- myThreadId
-  app <- mkApp
-  let wrappedApp request respond =
-        app request respond `catch` \ e -> do
-          when
-            (defaultShouldDisplayException e)
-            (throwTo callingThread e)
-          throwIO e
-  withApplicationSettings settings (return wrappedApp) action
+testWithApplicationSettings = undefined
+-- testWithApplicationSettings settings mkApp action = do
+--   callingThread <- myThreadId
+--   app <- mkApp
+--   let wrappedApp request respond =
+--         app request respond `catch` \ e -> do
+--           when
+--             (defaultShouldDisplayException e)
+--             (throwTo callingThread e)
+--           throwIO e
+--   withApplicationSettings settings (return wrappedApp) action
 
 data Waiter a
   = Waiter {

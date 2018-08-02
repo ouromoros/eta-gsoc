@@ -9,7 +9,7 @@ import qualified Control.Concurrent.Fiber.Exception as E
 import Network.HTTP2
 -- import Network.Socket (SockAddr)
 import Control.Concurrent.Fiber.Network (SockAddr)
-import Network.Wai
+import Network.Wai hiding (Application)
 
 import Network.Wai.Handler.Warp.HTTP2.EncodeFrame
 import Network.Wai.Handler.Warp.HTTP2.Manager

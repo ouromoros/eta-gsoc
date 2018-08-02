@@ -124,7 +124,7 @@ import qualified Data.Vault.Lazy as Vault
 import qualified Network.HTTP.Types as H
 -- import Network.Socket (SockAddr)
 import Control.Concurrent.Fiber.Network (SockAddr)
-import Network.Wai (Request, Response, vault)
+import Network.Wai (Response)
 
 import Network.Wai.Handler.Warp.FileInfoCache
 import Network.Wai.Handler.Warp.HTTP2.Request (getHTTP2Data, setHTTP2Data, modifyHTTP2Data)

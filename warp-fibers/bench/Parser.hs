@@ -4,7 +4,7 @@
 
 module Main where
 
-import Control.Exception (throwIO, throw)
+import Control.Concurrent.Fiber.Exception (throwIO, throw)
 import Control.Monad
 import qualified Data.ByteString as S
 --import Data.ByteString.Char8 (ByteString)

@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE CPP #-}
 
 module Network.Wai.Handler.Warp.Types where
@@ -17,11 +18,18 @@ import qualified Network.Wai.Handler.Warp.FdCache as F
 import qualified Network.Wai.Handler.Warp.FileInfoCache as I
 import Network.Wai.Handler.Warp.Imports
 import qualified Network.Wai.Handler.Warp.Timeout as T
+import Network.Wai hiding (Application, Request)
+import qualified Network.HTTP.Types as H
+import Control.Concurrent.Fiber.Network (SockAddr(..))
+import Data.Text (Text)
+import Data.Vault.Lazy (Vault)
 
 ----------------------------------------------------------------
 
 -- | TCP port number.
 type Port = Int
+
+type Application = Request -> (Response -> Fiber ResponseReceived) -> Fiber ResponseReceived
 
 ----------------------------------------------------------------
 
@@ -96,7 +104,7 @@ data Connection = Connection {
     -- | The connection closing function. Warp guarantees it will only be
     -- called once. Other functions (like 'connRecv') may be called after
     -- 'connClose' is called.
-    , connClose       :: Fiber ()
+    , connClose       :: IO ()
     -- | Free any buffers allocated. Warp guarantees it will only be
     -- called once, and no other functions will be called after it.
     , connFree        :: Fiber ()
@@ -192,3 +200,63 @@ data Transport = TCP -- ^ Plain channel: TCP
 isTransportSecure :: Transport -> Bool
 isTransportSecure TCP = False
 isTransportSecure _   = True
+
+data Request = Request {
+     requestMethod        :: H.Method
+  ,  httpVersion          :: H.HttpVersion
+  ,  rawPathInfo          :: S.ByteString
+  ,  rawQueryString       :: S.ByteString
+  ,  requestHeaders       :: H.RequestHeaders
+  ,  isSecure             :: Bool
+  ,  remoteHost           :: SockAddr
+  ,  pathInfo             :: [Text]
+  ,  queryString          :: H.Query
+  ,  requestBody          :: Fiber S.ByteString
+  ,  vault                 :: Vault
+  ,  requestBodyLength     :: RequestBodyLength
+  ,  requestHeaderHost     :: Maybe S.ByteString
+  ,  requestHeaderRange   :: Maybe S.ByteString
+  ,  requestHeaderReferer   :: Maybe S.ByteString
+  ,  requestHeaderUserAgent :: Maybe S.ByteString
+  }
+  deriving (Typeable)
+
+instance Show Request where
+    show Request{..} = "Request {" ++ intercalate ", " [a ++ " = " ++ b | (a,b) <- fields] ++ "}"
+        where
+            fields =
+                [("requestMethod",show requestMethod)
+                ,("httpVersion",show httpVersion)
+                ,("rawPathInfo",show rawPathInfo)
+                ,("rawQueryString",show rawQueryString)
+                ,("requestHeaders",show requestHeaders)
+                ,("isSecure",show isSecure)
+                ,("remoteHost",show remoteHost)
+                ,("pathInfo",show pathInfo)
+                ,("queryString",show queryString)
+                ,("requestBody","<IO ByteString>")
+                ,("vault","<Vault>")
+                ,("requestBodyLength",show requestBodyLength)
+                ,("requestHeaderHost",show requestHeaderHost)
+                ,("requestHeaderRange",show requestHeaderRange)
+                ]
+
+defaultRequest :: Request
+defaultRequest = Request
+    { requestMethod = H.methodGet
+    , httpVersion = H.http10
+    , rawPathInfo = S.empty
+    , rawQueryString = S.empty
+    , requestHeaders = []
+    , isSecure = False
+    , remoteHost = SockAddrInet 0 0
+    , pathInfo = []
+    , queryString = []
+    , requestBody = return S.empty
+    , vault = mempty
+    , requestBodyLength = KnownLength 0
+    , requestHeaderHost = Nothing
+    , requestHeaderRange = Nothing
+    , requestHeaderReferer = Nothing
+    , requestHeaderUserAgent = Nothing
+    }

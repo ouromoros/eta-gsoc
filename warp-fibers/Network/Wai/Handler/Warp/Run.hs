@@ -23,9 +23,9 @@ import Control.Concurrent.Fiber.Network (bindPortTCP)
 import Foreign.C.Error (Errno(..), eCONNABORTED)
 import GHC.IO.Exception (IOException(..))
 -- import Network.Socket (Socket, close, accept, withSocketsDo, SockAddr(SockAddrInet, SockAddrInet6), setSocketOption, SocketOption(..))
-import Control.Concurrent.Fiber.Network (Socket, close, accept, withSocketsDo, SockAddr(SockAddrInet, SockAddrInet6), setSocketOption, SocketOption(..))
+import Control.Concurrent.Fiber.Network (Socket, close, accept, withSocketsDo, SockAddr(SockAddrInet, SockAddrInet6), setSocketOption, SocketOption(..), close')
 import qualified Control.Concurrent.Fiber.Network as Sock
-import Network.Wai
+import Network.Wai hiding (Application, Request(..), defaultRequest)
 import Network.Wai.Internal (ResponseReceived (ResponseReceived))
 import System.Environment (getEnvironment)
 import System.Timeout (timeout)
@@ -64,7 +64,7 @@ socketConnection s = do
         connSendMany = Sock.sendMany s
       , connSendAll = sendall
       , connSendFile = sendFile s writeBuf bufferSize sendall
-      , connClose = close s
+      , connClose = close' s
       , connFree = freeBuffer writeBuf
       , connRecv = receive s bufferPool
       , connRecvBuf = receiveBuf s
@@ -123,12 +123,7 @@ runSettingsSocket set socket app = do
     runSettingsConnection set getConn app
   where
     getConn = do
--- #if WINDOWS
---         (s, sa) <- windowsThreadBlockHack $ accept socket
--- #else
-        -- (s, sa) <- liftIO $ fiber $ accept socket
         (s, sa) <- accept socket
--- #endif
         setSocketCloseOnExec s
         -- NoDelay causes an error for AF_UNIX.
         -- setSocketOption s NoDelay 1 `E.catch` \(E.SomeException _) -> return ()
@@ -241,8 +236,6 @@ acceptConnection set getConnMaker app counter ii0 = do
                 acceptLoop
 
     acceptNewConnection = do
-        -- x <- getConnMaker
-        -- return $ Just x
         ex <- try getConnMaker
         case ex of
             Right x -> return $ Just x
@@ -254,15 +247,6 @@ acceptConnection set getConnMaker app counter ii0 = do
                     else do
                         settingsOnException set Nothing $ toException e
                         return Nothing
-        -- (fiber getConnMaker >>= (return . Just)) `E.catch`
-        --     \e -> do
-        --         let eConnAborted = getErrno eCONNABORTED
-        --             getErrno (Errno cInt) = cInt
-        --         if ioe_errno e == Just eConnAborted
-        --             then fiber acceptNewConnection
-        --             else do
-        --                 fiber $ settingsOnException set Nothing $ toException e
-        --                 return Nothing
 
 -- Fork a new worker thread for this connection maker, and ask for a
 -- function to unmask (i.e., allow async exceptions to be thrown).
@@ -298,7 +282,7 @@ fork set mkConn addr app counter ii0 = liftIO $ settingsFork set $ \unmask ->
         isClosed <- liftIO $ atomicModifyIORef' ref $ \x -> (True, x)
         unless isClosed (connClose conn)
 
-    cleanUp ref (conn, _) = (closeConn ref conn) `finally` (connFree conn)
+    cleanUp ref (conn, _) = (liftIO $ closeConn ref conn) `finally` (connFree conn)
 
     -- We need to register a timeout handler for this thread, and
     -- cancel that handler as soon as we exit. We additionally close
@@ -449,7 +433,7 @@ serveConnection conn ii1 origAddr transport settings app = do
         -- creating the request, we need to make sure that we don't get
         -- an async exception before calling the ResponseSource.
         keepAliveRef <- liftIO $ newIORef $ error "keepAliveRef not filled"
-        _ <- liftIO $ app req $ \res -> fiber $ do
+        _ <- app req $ \res -> do
             T.resume th
             -- FIXME consider forcing evaluation of the res here to
             -- send more meaningful error messages to the user.

@@ -58,6 +58,7 @@ module Control.Concurrent.Fiber.Network
   ,close
   ,socket
   ,bind
+  ,close'
 
   ,readRawBufferPtr
   ,writeRawBufferPtr
@@ -105,6 +106,8 @@ import GHC.IO.Exception
 -- import Data.Streaming.Network (HostPreference)
 import Control.Monad.IO.Class (liftIO)
 
+
+
 foreign import java unsafe "@static eta.network.Utils.connect"
   c_connect' :: Channel -> SocketAddress -> IO Bool
 foreign import java unsafe "@static eta.network.Utils.accept"
@@ -135,12 +138,12 @@ c_socket family t p = liftIO $ c_socket' family t p
 c_sendto c p s sa = liftIO $ c_sendto' c p s sa
 
 newMVar = liftIO . M.newMVar
--- modifyMVar_ m f = liftIO $ M.modifyMVar_ m (\x -> fiber (f x))
+modifyMVar_ m f = liftIO $ M.modifyMVar_ m (\x -> fiber (f x))
 -- FIX ME
-modifyMVar_ m f = do
-  v <- takeMVar m
-  v' <- f v
-  putMVar m v'
+-- modifyMVar_ m f = do
+--   v <- takeMVar m
+--   v' <- f v
+--   putMVar m v'
 
 getAddrInfo mHints node service = liftIO $ NS.getAddrInfo mHints node service
 getNameInfo f h s addr = liftIO $ NS.getNameInfo f h s addr
@@ -337,6 +340,16 @@ close (MkSocket s _ _ _ socketStatus) = do
      Closed ->
          return status
      _ -> liftIO (closeFdWith closeFd s) >> return Closed
+
+close' :: Socket -> IO ()
+close' (MkSocket s _ _ _ socketStatus) = do
+ M.modifyMVar_ socketStatus $ \ status ->
+   case status of
+     ConvertedToHandle ->
+         ioError (userError ("close: converted to a Handle, use hClose instead"))
+     Closed ->
+         return status
+     _ -> closeFdWith closeFd s >> return Closed
 
 socket :: Family         -- Family Name (usually AF_INET)
        -> SocketType     -- Socket Type (usually Stream)

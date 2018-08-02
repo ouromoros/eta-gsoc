@@ -28,8 +28,8 @@ import Data.Version (showVersion)
 import Data.Word8 (_cr, _lf)
 import qualified Network.HTTP.Types as H
 import qualified Network.HTTP.Types.Header as H
-import Network.Wai
-import Network.Wai.Internal
+import Network.Wai hiding (Request(..))
+import Network.Wai.Internal hiding (Request(..))
 import qualified Paths_warp_fibers
 
 import Network.Wai.Handler.Warp.Buffer (toBuilderBuffer)

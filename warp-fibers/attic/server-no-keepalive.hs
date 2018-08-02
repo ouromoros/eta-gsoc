@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 import Network.Wai.Handler.Warp
-import Control.Exception (bracket)
+import Control.Concurrent.Fiber.Exception (bracket)
 import Control.Monad (forever)
 import Network (sClose)
 import Network.Socket (accept)
