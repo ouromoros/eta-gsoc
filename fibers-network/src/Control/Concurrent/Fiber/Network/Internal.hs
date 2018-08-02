@@ -14,9 +14,6 @@ module Control.Concurrent.Fiber.Network.Internal
   ,mkInetSocketAddress
   ,getByAddress
 
-  ,readMVar
-  ,fiber
-
   ,threadWaitAccept
   ,threadWaitConnect
   ,threadWaitRead
@@ -35,11 +32,11 @@ module Control.Concurrent.Fiber.Network.Internal
   ,isAcceptable
 
   ,toJByteArray
-  ,throwErrno
-  ,throwErrnoIfRetry
-  ,throwErrnoIfMinus1Retry
-  ,throwErrnoIfMinus1RetryMayBlock
-  ,throwErrnoIfRetryMayBlock
+  -- ,throwErrno
+  -- ,throwErrnoIfRetry
+  -- ,throwErrnoIfMinus1Retry
+  -- ,throwErrnoIfMinus1RetryMayBlock
+  -- ,throwErrnoIfRetryMayBlock
   ,throwSocketErrorIfMinus1Retry
   ,throwSocketErrorWaitRead
   ,throwSocketErrorWaitWrite
@@ -88,9 +85,6 @@ foreign import java unsafe "@new" mkInetSocketAddress
   :: InetAddress -> Int -> InetSocketAddress
 
 foreign import java unsafe "@static java.net.InetAddress.getByAddress" getByAddress :: JByteArray -> InetAddress
-
-fiber :: Fiber a -> IO a
-fiber = runFiber
 
 foreign import java unsafe "@static eta.network.Utils.getsockopt"
   c_getsockopt' :: Channel -> SOption -> IO CInt
@@ -155,9 +149,6 @@ getSockAddr = liftIO . getSockAddr'
 c_setsockopt c so i = liftIO $ c_setsockopt' c so i
 c_getsockopt c so = liftIO $ c_getsockopt' c so
 isBlocking = liftIO . isBlocking'
-
-readMVar :: MVar a -> Fiber a
-readMVar = liftIO . M.readMVar
 
 toJByteArray :: [Word8] -> JByteArray
 toJByteArray word8s = toJava bytes

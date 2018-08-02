@@ -73,7 +73,7 @@ module Control.Concurrent.Fiber.Network
 import Control.Concurrent.Fiber.Network.Internal
 
 import Control.Concurrent.Fiber (Fiber(..))
-import Control.Concurrent.Fiber.MVar (takeMVar, putMVar)
+import Control.Concurrent.Fiber.MVar (takeMVar, putMVar, readMVar)
 import qualified Control.Concurrent.MVar as M
 
 import qualified Network.Socket as NS
@@ -138,12 +138,10 @@ c_socket family t p = liftIO $ c_socket' family t p
 c_sendto c p s sa = liftIO $ c_sendto' c p s sa
 
 newMVar = liftIO . M.newMVar
-modifyMVar_ m f = liftIO $ M.modifyMVar_ m (\x -> fiber (f x))
--- FIX ME
--- modifyMVar_ m f = do
---   v <- takeMVar m
---   v' <- f v
---   putMVar m v'
+modifyMVar_ m f = do
+  v <- takeMVar m
+  v' <- f v
+  putMVar m v'
 
 getAddrInfo mHints node service = liftIO $ NS.getAddrInfo mHints node service
 getNameInfo f h s addr = liftIO $ NS.getNameInfo f h s addr
@@ -255,11 +253,11 @@ recvBuf sock@(MkSocket s _family _stype _protocol _status) ptr nbytes
  | otherwise   = do
         fd <- socket2FD sock
         len <-
-            throwSocketErrorIfMinus1Retry "Control.Concurre.Fiber.Network.recvBuf" $
+            -- throwSocketErrorIfMinus1Retry "Control.Concurre.Fiber.Network.recvBuf" $
                 readRawBufferPtr "Control.Concurre.Fiber.Network.recvBuf"
                 fd ptr 0 (fromIntegral nbytes)
         let len' = fromIntegral len
-        if len' == 0
+        if len' == -1
          then liftIO $ ioError (mkEOFError "Control.Concurre.Fiber.Network.recvBuf")
          else return len'
 
@@ -595,15 +593,19 @@ bindRandomPortTCP s = do
 readRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> CSize -> Fiber Int
 readRawBufferPtr loc !fd !buf !off !len = unsafe_read
   where
-    do_read call = fromIntegral `fmap`
-                      throwErrnoIfMinus1RetryMayBlock loc call
-                            (threadWaitRead (fdChannel fd))
+    do_read call = fromIntegral `fmap` retryOnNonBlock loc call (threadWaitRead (fdChannel fd))
     unsafe_read  = do_read (c_read (fdChannel fd) (buf `plusPtr` off) len)
 
 writeRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> CSize -> Fiber CInt
 writeRawBufferPtr loc !fd !buf !off !len = unsafe_write
   where
-    do_write call = fromIntegral `fmap`
-                      throwErrnoIfMinus1RetryMayBlock loc call
-                        (threadWaitWrite (fdChannel fd))
+    do_write call = fromIntegral `fmap` retryOnNonBlock loc call (threadWaitWrite (fdChannel fd))
     unsafe_write  = do_write (c_write (fdChannel fd) (buf `plusPtr` off) len)
+
+retryOnNonBlock :: (Eq a, Num a) => String -> Fiber a -> Fiber b -> Fiber a
+retryOnNonBlock loc act on_block = do
+  res <- act
+  if res == fromIntegral ((-1) :: Int)
+  then do _ <- on_block
+          retryOnNonBlock loc act on_block
+  else return res
