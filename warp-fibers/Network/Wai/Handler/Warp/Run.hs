@@ -213,8 +213,8 @@ acceptConnection set getConnMaker app counter ii0 = do
     -- acceptNewConnection and the registering of connClose.
     
     -- No exception handling for now
-    -- void $ mask_ acceptLoop
-    void $ acceptLoop
+    void $ E.mask_ acceptLoop
+    -- void $ acceptLoop
     gracefulShutdown set counter
   where
     acceptLoop = do

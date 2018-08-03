@@ -22,7 +22,7 @@ import Network.Wai hiding (Request)
 import qualified Paths_warp_fibers
 import System.IO (stderr)
 import System.IO.Error (ioeGetErrorType)
-import GHC.IO (unsafeUnmask)
+-- import GHC.IO (unsafeUnmask)
 
 import Network.Wai.Handler.Warp.Imports
 import Network.Wai.Handler.Warp.Timeout
@@ -191,6 +191,6 @@ exceptionResponseForDebug e =
                     $ byteString . C8.pack $ "Exception: " ++ show e
 
 forkFiberWithUnmask :: ((forall a . Fiber a -> Fiber a) -> Fiber ()) -> IO ()
-forkFiberWithUnmask f = void $ forkFiber (f unmaskFiber)
+forkFiberWithUnmask f = void $ forkFiber (f unsafeUnmask)
   -- where unmaskFiber = liftIO . unsafeUnmask . fiber
-  where unmaskFiber = id
+  -- where unmaskFiber = id
