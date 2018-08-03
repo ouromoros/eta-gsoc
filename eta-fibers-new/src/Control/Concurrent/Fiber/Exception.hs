@@ -19,7 +19,7 @@ mask f = f id
 -- catch :: E.Exception e => Fiber a -> (e -> Fiber a) -> Fiber a
 -- catch f g = callCC $ \k -> liftIO $ runFiber (yield >> f)  `E.catch` (\e -> runFiber (g e >>= k))
 catch :: E.Exception e => Fiber a -> (e -> Fiber a) -> Fiber a
-catch f g = callCC $ \k -> liftIO $ catchFiber (runFiber (yield >> f)) (\e -> runFiber (g e)) (runFiber . k )
+catch f g = callCC $ \k -> liftIO $ catchFiber (runFiber $ yield >> f) (\e -> runFiber (g e)) (runFiber . k)
   where
     catchFiber f g k = IO $ \s -> case catchFiber# (unsafeCoerce f) (unsafeCoerce g) (unsafeCoerce k) s
                                     of (# s', x #) -> (# s', unsafeCoerce x #)
