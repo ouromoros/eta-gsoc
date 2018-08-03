@@ -3,7 +3,7 @@
 
 module Network.Wai.Handler.Warp.HTTP2 (isHTTP2, http2) where
 
--- import Control.Concurrent (forkIO, killThread)
+-- import Control.Concurrent (killThread)
 import Control.Concurrent.Fiber
 import qualified Control.Concurrent.Fiber.Exception as E
 import Network.HTTP2
@@ -24,8 +24,6 @@ import Network.Wai.Handler.Warp.Types
 
 ----------------------------------------------------------------
 
-killThread = undefined
-
 http2 :: Connection -> InternalInfo1 -> SockAddr -> Transport -> S.Settings -> (BufSize -> Fiber ByteString) -> Application -> Fiber ()
 http2 conn ii1 addr transport settings readN app = do
     checkTLS
@@ -45,14 +43,14 @@ http2 conn ii1 addr transport settings readN app = do
         replicateM_ 3 $ spawnAction mgr
         -- Receiver
         let mkreq = mkRequest ii1 settings addr
-        tid <- liftIO $ forkFiber $ frameReceiver ctx mkreq readN
+        tid <- forkFiber $ frameReceiver ctx mkreq readN
         -- Sender
         -- frameSender is the main thread because it ensures to send
         -- a goway frame.
         (frameSender ctx conn settings mgr) `E.finally` (do
             clearContext ctx
             stop mgr
-            liftIO $ killThread tid)
+            killFiber tid)
   where
     checkTLS = case transport of
         TCP -> return () -- direct

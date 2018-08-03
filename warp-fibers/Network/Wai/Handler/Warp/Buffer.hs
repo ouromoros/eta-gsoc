@@ -10,6 +10,7 @@ module Network.Wai.Handler.Warp.Buffer (
   , toBuilderBuffer
   , copy
   , bufferIO
+  , copy'
   ) where
 
 import qualified Data.ByteString as BS
@@ -21,6 +22,7 @@ import Foreign.Marshal.Alloc (mallocBytes, free, finalizerFree)
 import Foreign.Ptr (castPtr, plusPtr)
 import Foreign.ForeignPtr (newForeignPtr, newForeignPtr_)
 import Control.Concurrent.Fiber.Network.Internal1 (withForeignPtr)
+import qualified Foreign.ForeignPtr as F
 
 import Network.Wai.Handler.Warp.Imports
 import Network.Wai.Handler.Warp.Types
@@ -103,6 +105,12 @@ copy !ptr (PS fp o l) = withForeignPtr fp $ \p -> do
     liftIO $ memcpy ptr (p `plusPtr` o) (fromIntegral l)
     return $! ptr `plusPtr` l
 {-# INLINE copy #-}
+
+copy' :: Buffer -> ByteString -> IO Buffer
+copy' !ptr (PS fp o l) = F.withForeignPtr fp $ \p -> do
+    memcpy ptr (p `plusPtr` o) (fromIntegral l)
+    return $! ptr `plusPtr` l
+{-# INLINE copy' #-}
 
 bufferIO :: Buffer -> Int -> (ByteString -> Fiber ()) -> Fiber ()
 bufferIO ptr siz io = do

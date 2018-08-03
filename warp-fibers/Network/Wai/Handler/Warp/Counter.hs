@@ -4,6 +4,7 @@ module Network.Wai.Handler.Warp.Counter (
     Counter
   , newCounter
   , waitForZero
+  , waitForZero'
   , increase
   , decrease
   ) where
@@ -20,6 +21,11 @@ newCounter = liftIO $ Counter <$> newTVarIO 0
 
 waitForZero :: Counter -> Fiber ()
 waitForZero (Counter ref) = liftIO $ atomically $ do
+    x <- readTVar ref
+    unless (x == 0) retry
+
+waitForZero' :: Counter -> IO ()
+waitForZero' (Counter ref) = atomically $ do
     x <- readTVar ref
     unless (x == 0) retry
 

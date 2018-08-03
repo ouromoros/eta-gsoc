@@ -4,7 +4,8 @@ module Network.Wai.Handler.Warp.Fiber (
   , forkFiberAndWait
   , fiber
   , readMVar
---   , throwFiber
+  , killFiber
+  , toThreadId
   ) where
 
 
@@ -14,6 +15,8 @@ import GHC.IO (IO(..))
 import qualified Control.Concurrent.MVar as IM
 import Control.Monad.IO.Class (liftIO)
 import Control.Concurrent.Fiber.Exception as E
+import qualified Control.Concurrent as C
+import qualified Control.Exception as IE
 import GHC.Conc.Sync (ThreadId(..))
 import Control.Monad (void)
 
@@ -21,15 +24,18 @@ forkFiberAndWait :: Fiber a -> IO ()
 forkFiberAndWait f = do
     m <- IM.newEmptyMVar 
     -- should use something like `finally` instead of >> here
-    forkFiber $ (void f) `E.finally` (liftIO $ IM.putMVar m ())
+    forkFiber ((void f) `E.finally` (liftIO $ IM.putMVar m ()))
     IM.takeMVar m
     return ()
 
 fiber :: Fiber a -> IO a
 fiber = runFiber
 
--- throwFiber :: E.Exception e => FiberId -> e -> Fiber ()
--- throwFiber (FiberId id) = liftIO . E.throwTo (ThreadId id)
+toThreadId :: FiberId -> ThreadId
+toThreadId (FiberId id) = ThreadId id
 
-readMVar :: MVar a -> Fiber a
-readMVar = liftIO . IM.readMVar
+throwTo :: IE.Exception e => FiberId -> e -> Fiber ()
+throwTo (FiberId id) = liftIO . C.throwTo (ThreadId id)
+
+killFiber :: FiberId -> Fiber ()
+killFiber tid = throwTo tid IE.ThreadKilled

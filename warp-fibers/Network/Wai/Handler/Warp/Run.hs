@@ -309,7 +309,6 @@ fork set mkConn addr app counter ii0 = liftIO $ settingsFork set $ \unmask ->
     onClose adr _ = decrease counter >> settingsOnClose set adr
 
 
--- TODO: finish this fun
 serveConnection :: Connection
                 -> InternalInfo1
                 -> SockAddr
@@ -545,5 +544,5 @@ gracefulShutdown set counter =
         Nothing ->
             waitForZero counter
         (Just seconds) ->
-            liftIO $ void (timeout (seconds * microsPerSecond) (fiber $ waitForZero counter))
+            liftIO $ void (timeout (seconds * microsPerSecond) (waitForZero' counter))
             where microsPerSecond = 1000000
