@@ -1,10 +1,11 @@
-{-# LANGUAGE CPP, GHCForeignImportPrim, MagicHash, UnboxedTuples,UnliftedFFITypes, MultiParamTypeClasses, ExistentialQuantification, ScopedTypeVariables, FlexibleInstances, FlexibleContexts, UndecidableInstances #-}
+{-# LANGUAGE CPP, GHCForeignImportPrim, MagicHash, UnboxedTuples,UnliftedFFITypes, MultiParamTypeClasses, ExistentialQuantification, ScopedTypeVariables, FlexibleInstances, FlexibleContexts, UndecidableInstances, RankNTypes #-}
 module Control.Concurrent.Fiber.Exception
 where
 
 import Control.Concurrent.Fiber
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Exception as E
+import qualified GHC.IO as IO
 import Unsafe.Coerce
 import System.IO.Unsafe
 import GHC.Base
@@ -12,8 +13,6 @@ import GHC.Base
 
 foreign import prim "eta.runtime.exception.Exception.catchFiber_"
   catchFiber# :: Any -> Any -> Any -> State# s -> (# State# s, Any #)
--- FIX ME
-mask f = f id
 
 -- HACK ATTENTION: add 'yield' before f so that outer continuation is stopped
 -- catch :: E.Exception e => Fiber a -> (e -> Fiber a) -> Fiber a
@@ -23,6 +22,9 @@ catch f g = callCC $ \k -> liftIO $ catchFiber (runFiber $ yield >> f) (\e -> ru
   where
     catchFiber f g k = IO $ \s -> case catchFiber# (unsafeCoerce f) (unsafeCoerce g) (unsafeCoerce k) s
                                     of (# s', x #) -> (# s', unsafeCoerce x #)
+
+catch' :: Fiber a -> (a -> Fiber b) -> Fiber b
+catch' f g = (catch f $ \e -> liftIO $ E.throw (e :: E.SomeException)) >>= g
 
 
 onException :: Fiber a -> Fiber b -> Fiber a
@@ -65,3 +67,35 @@ bracketOnError before after thing =
   mask $ \restore -> do
     a <- before
     restore (thing a) `onException` after a
+
+
+blockAsync :: Fiber a -> Fiber a
+blockAsync f = callCC $ \k -> (liftIO $ block' (runFiber f)) `catch'` k
+  where block' (IO io) = IO $ maskAsyncExceptions# io
+
+-- To re-enable asynchronous exceptions inside the scope of
+-- 'block', 'unblock' can be
+-- used.  It scopes in exactly the same way, so on exit from
+-- 'unblock' asynchronous exception delivery will
+-- be disabled again.
+unblockAsync :: Fiber a -> Fiber a
+unblockAsync = unsafeUnmask
+
+unsafeUnmask :: Fiber a -> Fiber a
+unsafeUnmask f = callCC $ \k -> (liftIO $ unsafeUnmask' (runFiber f)) `catch'` k
+  where unsafeUnmask' (IO io) = IO $ unmaskAsyncExceptions# io
+
+blockUninterruptible :: Fiber a -> Fiber a
+blockUninterruptible f = callCC $ \k -> (liftIO $ blockUninterruptible' (runFiber f)) `catch'` k
+blockUninterruptible' (IO io) = IO $ maskUninterruptible# io
+
+mask  :: ((forall a. Fiber a -> Fiber a) -> Fiber b) -> Fiber b
+mask io = do
+  b <- liftIO $ IO.getMaskingState
+  case b of
+    IO.Unmasked              -> blockAsync $ io unblockAsync
+    IO.MaskedInterruptible   -> io blockAsync
+    IO.MaskedUninterruptible -> io blockUninterruptible
+
+mask_ :: Fiber a -> Fiber a
+mask_ io = mask $ \_ -> io
