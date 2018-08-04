@@ -23,8 +23,8 @@ catch f g = callCC $ \k -> liftIO $ catchFiber (runFiber $ yield >> f) (\e -> ru
     catchFiber f g k = IO $ \s -> case catchFiber# (unsafeCoerce f) (unsafeCoerce g) (unsafeCoerce k) s
                                     of (# s', x #) -> (# s', unsafeCoerce x #)
 
-catch' :: Fiber a -> (a -> Fiber b) -> Fiber b
-catch' f g = (catch f $ \e -> liftIO $ E.throw (e :: E.SomeException)) >>= g
+-- catch' :: Fiber a -> (a -> Fiber b) -> Fiber b
+-- catch' f g = (catch f $ \e -> liftIO $ E.throw (e :: E.SomeException)) >>= g
 
 
 onException :: Fiber a -> Fiber b -> Fiber a
@@ -70,8 +70,10 @@ bracketOnError before after thing =
 
 
 blockAsync :: Fiber a -> Fiber a
-blockAsync f = callCC $ \k -> (liftIO $ block' (runFiber f)) `catch'` k
-  where block' (IO io) = IO $ maskAsyncExceptions# io
+blockAsync f = callCC $ \k -> liftIO $ block' (runFiber f) (unFiber . k)
+block' (IO io) k = IO $ \s -> case maskAsyncExceptions# io s of
+                                            (# s', a #) -> case k a s' of
+                                              (# s'', b #) -> (# s'', unsafeCoerce b #)
 
 -- To re-enable asynchronous exceptions inside the scope of
 -- 'block', 'unblock' can be
@@ -82,12 +84,16 @@ unblockAsync :: Fiber a -> Fiber a
 unblockAsync = unsafeUnmask
 
 unsafeUnmask :: Fiber a -> Fiber a
-unsafeUnmask f = callCC $ \k -> (liftIO $ unsafeUnmask' (runFiber f)) `catch'` k
-  where unsafeUnmask' (IO io) = IO $ unmaskAsyncExceptions# io
+unsafeUnmask f = callCC $ \k -> liftIO $ unsafeUnmask' (runFiber f) (unFiber . k)
+unsafeUnmask' (IO io) k = IO $ \s -> case unmaskAsyncExceptions# io s of
+                                            (# s', a #) -> case k a s' of
+                                              (# s'', b #) -> (# s'', unsafeCoerce b #)
 
 blockUninterruptible :: Fiber a -> Fiber a
-blockUninterruptible f = callCC $ \k -> (liftIO $ blockUninterruptible' (runFiber f)) `catch'` k
-blockUninterruptible' (IO io) = IO $ maskUninterruptible# io
+blockUninterruptible f = callCC $ \k -> liftIO $ blockUninterruptible' (runFiber f) (unFiber . k)
+blockUninterruptible' (IO io) k = IO $ \s -> case maskUninterruptible# io s of
+                                            (# s', a #) -> case k a s' of
+                                              (# s'', b #) -> (# s'', unsafeCoerce b #)
 
 mask  :: ((forall a. Fiber a -> Fiber a) -> Fiber b) -> Fiber b
 mask io = do
