@@ -71,6 +71,7 @@ Library
       Build-Depends: network               >= 2.3
   Exposed-modules:   Network.Wai.Handler.Warp
                      Network.Wai.Handler.Warp.Internal
+                     Network.Wai.Handler.Warp.ResponseBuilder
   Other-modules:     Network.Wai.Handler.Warp.Buffer
                      Network.Wai.Handler.Warp.Conduit
                      Network.Wai.Handler.Warp.Counter

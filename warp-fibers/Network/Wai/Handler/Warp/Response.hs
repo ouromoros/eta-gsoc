@@ -28,11 +28,11 @@ import Data.Version (showVersion)
 import Data.Word8 (_cr, _lf)
 import qualified Network.HTTP.Types as H
 import qualified Network.HTTP.Types.Header as H
-import Network.Wai hiding (Request(..))
-import Network.Wai.Internal hiding (Request(..))
+import Network.Wai hiding (Request(..), Response(..), responseHeaders, StreamingBody, responseStatus)
+import Network.Wai.Internal hiding (Request(..), Response(..), StreamingBody)
 import qualified Paths_warp_fibers
 
-import Network.Wai.Handler.Warp.Buffer (toBuilderBuffer)
+import Network.Wai.Handler.Warp.Buffer (toBuilderBuffer')
 import qualified Network.Wai.Handler.Warp.Date as D
 import Network.Wai.Handler.Warp.File
 import Network.Wai.Handler.Warp.Header
@@ -42,6 +42,7 @@ import Network.Wai.Handler.Warp.ResponseHeader
 import Network.Wai.Handler.Warp.Settings
 import qualified Network.Wai.Handler.Warp.Timeout as T
 import Network.Wai.Handler.Warp.Types
+import Network.Wai.Handler.Warp.ResponseBuilder
 
 -- $setup
 -- >>> :set -XOverloadedStrings
@@ -149,8 +150,7 @@ sendResponse settings conn ii req reqidxhdr src response = do
         ResponseStream _ _ fb
           | isHead                  -> RspNoBody
           | otherwise               -> RspStream fb needsChunked th
-        ResponseRaw raw _           -> RspRaw raw' src (T.tickle th)
-          where raw' = \x y -> liftIO $ raw (fiber x) (fiber . y)
+        ResponseRaw raw _           -> RspRaw raw src (T.tickle th)
     -- Make sure we don't hang on to 'response' (avoid space leak)
     !ret = case response of
         ResponseFile    {} -> isPersist
@@ -233,7 +233,7 @@ sendRsp conn _ ver s hs (RspBuilder body' needsChunked) = do
 sendRsp conn _ ver s hs (RspStream streamingBody needsChunked th) = do
     header <- composeHeaderBuilder ver s hs needsChunked
     (recv, finish) <- liftIO $ newByteStringBuilderRecv $ reuseBufferStrategy
-                    $ fiber $ toBuilderBuffer (connWriteBuffer conn) (connBufferSize conn)
+                    $ toBuilderBuffer' (connWriteBuffer conn) (connBufferSize conn)
     let send builder = do
             popper <- liftIO $ recv builder
             let loop = do
@@ -246,7 +246,7 @@ sendRsp conn _ ver s hs (RspStream streamingBody needsChunked th) = do
             | needsChunked = send . chunkedTransferEncoding
             | otherwise = send
     send header
-    liftIO $ streamingBody (fiber .sendChunk) (fiber $ sendChunk flush)
+    streamingBody sendChunk (sendChunk flush)
     when needsChunked $ send chunkedTransferTerminator
     mbs <- liftIO finish
     maybe (return ()) (sendFragment conn th) mbs

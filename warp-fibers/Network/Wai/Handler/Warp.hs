@@ -6,18 +6,26 @@
 ---------------------------------------------------------
 --
 -- Module        : Network.Wai.Handler.Warp
--- Copyright     : Michael Snoyman
+-- Copyright     : Jitian Deng
 -- License       : BSD3
 --
--- Maintainer    : Michael Snoyman <michael@snoyman.com>
--- Stability     : Stable
+-- Maintainer    : Jitian Deng <ouromoros@gmail.com>
+-- Stability     : Unstable
 -- Portability   : portable
 --
--- A fast, light-weight HTTP server handler for WAI.
+-- A reimplementation of warp in eta-fibers(a lightweight, cooperative threading model).
 --
 ---------------------------------------------------------
 
 -- | A fast, light-weight HTTP server handler for WAI.
+--
+--
+-- The API of `warp-fibers` is largely the same with original warp, except most
+-- methods are now using the `Fiber` monad where they were using `IO` monad.
+-- 
+-- An important thing to note is that both the definition of `Application` and
+-- and `Request` has been changed to suit the needs of using `Fiber` monad everywhere.
+-- They're defined in `Network.Wai.Handler
 --
 -- HTTP\/1.0, HTTP\/1.1 and HTTP\/2 are supported. For HTTP\/2,
 -- Warp supports direct and ALPN (in TLS) but not upgrade.
@@ -124,7 +132,7 @@ import qualified Data.Vault.Lazy as Vault
 import qualified Network.HTTP.Types as H
 -- import Network.Socket (SockAddr)
 import Control.Concurrent.Fiber.Network (SockAddr)
-import Network.Wai (Response)
+-- import Network.Wai (Response)
 
 import Network.Wai.Handler.Warp.FileInfoCache
 import Network.Wai.Handler.Warp.HTTP2.Request (getHTTP2Data, setHTTP2Data, modifyHTTP2Data)

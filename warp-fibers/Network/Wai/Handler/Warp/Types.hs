@@ -18,11 +18,13 @@ import qualified Network.Wai.Handler.Warp.FdCache as F
 import qualified Network.Wai.Handler.Warp.FileInfoCache as I
 import Network.Wai.Handler.Warp.Imports
 import qualified Network.Wai.Handler.Warp.Timeout as T
-import Network.Wai hiding (Application, Request)
+import Network.Wai hiding (Application, Request, Response(..), StreamingBody)
 import qualified Network.HTTP.Types as H
 import Control.Concurrent.Fiber.Network (SockAddr(..))
 import Data.Text (Text)
 import Data.Vault.Lazy (Vault)
+
+import           Data.ByteString.Builder      (Builder)
 
 ----------------------------------------------------------------
 
@@ -260,3 +262,18 @@ defaultRequest = Request
     , requestHeaderReferer = Nothing
     , requestHeaderUserAgent = Nothing
     }
+
+data Response
+    = ResponseFile H.Status H.ResponseHeaders FilePath (Maybe FilePart)
+    | ResponseBuilder H.Status H.ResponseHeaders Builder
+    | ResponseStream H.Status H.ResponseHeaders StreamingBody
+    | ResponseRaw (Fiber S.ByteString -> (S.ByteString -> Fiber ()) -> Fiber ()) Response
+  deriving Typeable
+
+-- | Represents a streaming HTTP response body. It's a function of two
+-- parameters; the first parameter provides a means of sending another chunk of
+-- data, and the second parameter provides a means of flushing the data to the
+-- client.
+--
+-- Since 3.0.0
+type StreamingBody = (Builder -> Fiber ()) -> Fiber () -> Fiber ()

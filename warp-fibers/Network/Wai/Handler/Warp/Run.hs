@@ -245,7 +245,7 @@ acceptConnection set getConnMaker app counter ii0 = do
                 if ioe_errno e == Just eConnAborted
                     then acceptNewConnection
                     else do
-                        settingsOnException set Nothing $ toException e
+                        -- settingsOnException set Nothing $ toException e
                         return Nothing
 
 -- Fork a new worker thread for this connection maker, and ask for a

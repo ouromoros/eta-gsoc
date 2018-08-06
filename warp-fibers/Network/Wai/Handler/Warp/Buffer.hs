@@ -8,6 +8,7 @@ module Network.Wai.Handler.Warp.Buffer (
   , newBufferPool
   , withBufferPool
   , toBuilderBuffer
+  , toBuilderBuffer'
   , copy
   , bufferIO
   , copy'
@@ -96,6 +97,11 @@ withBufferPool pool f = do
 toBuilderBuffer :: Buffer -> BufSize -> Fiber B.Buffer
 toBuilderBuffer ptr size = do
     fptr <- liftIO $ newForeignPtr_ ptr
+    return $ B.Buffer fptr ptr ptr (ptr `plusPtr` size)
+
+toBuilderBuffer' :: Buffer -> BufSize -> IO B.Buffer
+toBuilderBuffer' ptr size = do
+    fptr <- newForeignPtr_ ptr
     return $ B.Buffer fptr ptr ptr (ptr `plusPtr` size)
 
 -- | Copying the bytestring to the buffer.

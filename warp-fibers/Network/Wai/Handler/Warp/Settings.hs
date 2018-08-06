@@ -18,7 +18,8 @@ import GHC.IO.Exception (IOErrorType(..))
 import qualified Network.HTTP.Types as H
 -- import Network.Socket (SockAddr)
 import Control.Concurrent.Fiber.Network (SockAddr)
-import Network.Wai hiding (Request)
+import Network.Wai hiding (Request, Response, responseBuilder, responseLBS)
+import Network.Wai.Handler.Warp.ResponseBuilder
 import qualified Paths_warp_fibers
 import System.IO (stderr)
 import System.IO.Error (ioeGetErrorType)
@@ -27,6 +28,7 @@ import System.IO.Error (ioeGetErrorType)
 import Network.Wai.Handler.Warp.Imports
 import Network.Wai.Handler.Warp.Timeout
 import Network.Wai.Handler.Warp.Types
+import Network.Wai.Handler.Warp.ResponseBuilder
 
 -- | Various Warp server settings. This is purposely kept as an abstract data
 -- type so that new settings can be added without breaking backwards
@@ -192,5 +194,3 @@ exceptionResponseForDebug e =
 
 forkFiberWithUnmask :: ((forall a . Fiber a -> Fiber a) -> Fiber ()) -> IO ()
 forkFiberWithUnmask f = void $ forkFiber (f unsafeUnmask)
-  -- where unmaskFiber = liftIO . unsafeUnmask . fiber
-  -- where unmaskFiber = id

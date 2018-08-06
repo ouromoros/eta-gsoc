@@ -23,9 +23,10 @@ import Network.HPACK.Token
 import qualified Network.HTTP.Types as H
 import Network.HTTP2
 import Network.HTTP2.Priority
-import Network.Wai hiding (Application, Request(..))
+-- import Network.Wai hiding (Application, Request(..))
 import qualified Network.Wai.Handler.Warp.Timeout as Timeout
-import Network.Wai.Internal (Response(..), ResponseReceived(..), ResponseReceived(..))
+-- import Network.Wai.Internal (Response(..), ResponseReceived(..), ResponseReceived(..))
+import Network.Wai.Internal (ResponseReceived(..), FilePart(..))
 
 import Network.Wai.Handler.Warp.FileInfoCache
 import Network.Wai.Handler.Warp.HTTP2.EncodeFrame
@@ -222,12 +223,12 @@ response settings ctx@Context{outputQ} mgr ii reqvt tconf strm req rsp = case rs
         let !rspn = RspnStreaming s0 tbl tbq
             !out = Output strm rspn ii tell h2data rspnOrWait
         enqueueOutput outputQ out
-        let push b = do
+        let push b = liftIO $ do
               T.pause' th
               atomically $ writeTBQueue tbq (SBuilder b)
               T.resume' th
-            flush  = atomically $ writeTBQueue tbq SFlush
-        _ <- liftIO $ strmbdy push flush
+            flush  = liftIO $ atomically $ writeTBQueue tbq SFlush
+        _ <- strmbdy push flush
         liftIO $ atomically $ writeTBQueue tbq SFinish
         deleteMyId mgr
         return ResponseReceived
