@@ -4,6 +4,7 @@ module Main where
 import qualified Data.ByteString.Char8 as B
 import Control.Concurrent.Fiber
 import Control.Concurrent.Fiber.Network
+import qualified Data.Streaming.Network as DSN
 import Data.Streaming.Network.Internal (HostPreference(..))
 import qualified Control.Concurrent.MVar as IM
 import Control.Monad.IO.Class (liftIO)
@@ -19,13 +20,13 @@ main = forkFiberAndWait main'
 
 main' :: Fiber ()
 main' = withSocketsDo $ do
-    sock <- bindPortTCP 4242 HostIPv4
+    sock <- liftIO $ DSN.bindPortTCP 3000 HostIPv4Only
     mainLoop sock
 
 mainLoop :: Socket -> Fiber ()
 mainLoop sock = do
     conn <- accept sock
-    liftIO $ forkFiber $ runConn conn            -- run our server's logic
+    forkFiber $ runConn conn            -- run our server's logic
     mainLoop sock           -- repeat
  
 runConn :: (Socket, SockAddr) -> Fiber ()
