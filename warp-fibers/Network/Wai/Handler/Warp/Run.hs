@@ -48,12 +48,6 @@ import qualified Network.Wai.Handler.Warp.Timeout as T
 import Network.Wai.Handler.Warp.Types
 
 
--- #if WINDOWS
--- import Network.Wai.Handler.Warp.Windows
--- #else
--- import Network.Socket (fdSocket)
--- #endif
-
 -- | Creating 'Connection' for plain HTTP based on a given socket.
 socketConnection :: Socket -> Fiber Connection
 socketConnection s = do

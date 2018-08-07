@@ -1,35 +1,6 @@
 {-|
 
-This module defines a generic web application interface. It is a common
-protocol between web servers and web applications.
-
-The overriding design principles here are performance and generality. To
-address performance, this library is built on top of the conduit package and
-bytestring's Builder type.  The advantages of conduits over lazy IO have been
-debated elsewhere and so will not be addressed here.  However, helper functions
-like 'responseLBS' allow you to continue using lazy IO if you so desire.
-
-Generality is achieved by removing many variables commonly found in similar
-projects that are not universal to all servers. The goal is that the 'Request'
-object contains only data which is meaningful in all circumstances.
-
-Please remember when using this package that, while your application may
-compile without a hitch against many different servers, there are other
-considerations to be taken when moving to a new backend. For example, if you
-transfer from a CGI application to a FastCGI one, you might suddenly find you
-have a memory leak. Conversely, a FastCGI application would be well served to
-preload all templates from disk when first starting; this would kill the
-performance of a CGI application.
-
-This package purposely provides very little functionality. You can find various
-middlewares, backends and utilities on Hackage. Some of the most commonly used
-include:
-
-[warp] <http://hackage.haskell.org/package/warp>
-
-[wai-extra] <http://hackage.haskell.org/package/wai-extra>
-
-[wai-test] <http://hackage.haskell.org/package/wai-test>
+This module is from `Network.Wai` and defines some utility functions regarding `Response`.
 
 -}
 module Network.Wai.Handler.Warp.ResponseBuilder

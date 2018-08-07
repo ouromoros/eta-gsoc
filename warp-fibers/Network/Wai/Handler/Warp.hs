@@ -23,7 +23,7 @@
 -- The API of `warp-fibers` is largely the same with original warp, except most
 -- methods are now using the `Fiber` monad where they were using `IO` monad.
 -- 
--- An important thing to note is that both the definition of `Application` and
+-- An important thing to note is that the definition of `Application`, `Response` and
 -- and `Request` has been changed to suit the needs of using `Fiber` monad everywhere.
 -- They're defined in `Network.Wai.Handler
 --
@@ -124,6 +124,10 @@ module Network.Wai.Handler.Warp (
   , promisedResponseHeaders
   , promisedWeight
   , defaultPushPromise
+
+  , Application
+  , Request(..)
+  , Response(..)
   ) where
 
 import Control.Exception (SomeException, throwIO)

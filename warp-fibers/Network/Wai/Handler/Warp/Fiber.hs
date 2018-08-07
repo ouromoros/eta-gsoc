@@ -1,4 +1,3 @@
-
 module Network.Wai.Handler.Warp.Fiber (
     liftIO
   , forkFiberAndWait
