@@ -1,6 +1,8 @@
 module Control.Concurrent.Fiber.Network.Internal1
   where
 
+-- | This module contains some `with*` functions that must be rewritten into `Fiber` type
+
 import Control.Concurrent.Fiber
 import Foreign.ForeignPtr (ForeignPtr)
 import Foreign.Ptr

@@ -11,6 +11,7 @@ module Control.Concurrent.Fiber.Network.Internal
   ,SocketAddress
   ,PortNumber
   ,HostAddress
+
   ,mkInetSocketAddress
   ,getByAddress
 
@@ -32,11 +33,6 @@ module Control.Concurrent.Fiber.Network.Internal
   ,isAcceptable
 
   ,toJByteArray
-  -- ,throwErrno
-  -- ,throwErrnoIfRetry
-  -- ,throwErrnoIfMinus1Retry
-  -- ,throwErrnoIfMinus1RetryMayBlock
-  -- ,throwErrnoIfRetryMayBlock
   ,throwSocketErrorIfMinus1Retry
   ,throwSocketErrorWaitRead
   ,throwSocketErrorWaitWrite
@@ -46,7 +42,7 @@ import qualified Control.Concurrent.MVar as M
 import Control.Concurrent.Fiber
 import Control.Concurrent.Fiber.MVar
 import System.Posix.Types (Channel(..))
-import Network.Socket (SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..), HostAddress, PortNumber)
+import Network.Socket (SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..), HostAddress, PortNumber, Socket(..))
 import qualified Network.Socket as NS
 import Foreign.C.Error (eINTR, getErrno, throwErrno, eWOULDBLOCK, eAGAIN)
 import Control.Exception.Base (evaluate)
@@ -61,15 +57,6 @@ import GHC.Base
 import Java
 import Java.Core
 import Control.Monad.IO.Class (liftIO)
-
-data Socket
-  = MkSocket
-            Channel              -- File Descriptor
-            Family
-            SocketType
-            ProtocolNumber       -- Protocol Number
-            (MVar SocketStatus)  -- Status Flag
-  deriving Typeable
 
 data {-# CLASS "java.net.InetSocketAddress" #-} InetSocketAddress =
   ISA (Object# InetSocketAddress)
@@ -179,13 +166,6 @@ socket2FD  (MkSocket fd _ _ _ _) = do
   return $ FD { fdFD = FDGeneric fd, fdIsNonBlocking = not blocking }
 
 isAcceptable :: Socket -> Fiber Bool
--- #if defined(DOMAIN_SOCKET_SUPPORT)
--- isAcceptable (MkSocket _ AF_UNIX x _ status)
---     | x == Stream || x == SeqPacket = do
---         value <- readMVar status
---         return (value == Connected || value == Bound || value == Listening)
--- isAcceptable (MkSocket _ AF_UNIX _ _ _) = return False
--- #endif
 isAcceptable (MkSocket _ _ _ _ status) = do
     value <- readMVar status
     return (value == Connected || value == Listening)

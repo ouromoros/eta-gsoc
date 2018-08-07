@@ -1,3 +1,6 @@
+-- | Non-blocking network IO functions for eta-fibers.
+-- Contains most basic network operations and types imported from `network`
+
 module Control.Concurrent.Fiber.Network
   (SocketType(..)
   ,Family(..)
@@ -94,8 +97,6 @@ import Data.Streaming.Network.Internal (HostPreference(..))
 import Network.Socket (AddrInfo(..), SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..), AddrInfoFlag(..), NameInfoFlag(..), defaultProtocol)
 
 import Data.ByteString (ByteString)
--- import Data.ByteString.Internal (createAndTrim)
--- import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
 import Control.Concurrent.Fiber.Network.Internal1 (createAndTrim, unsafeUseAsCStringLen)
 import Control.Monad
 import Control.Exception (throwIO, IOException)
@@ -103,7 +104,6 @@ import Control.Concurrent.Fiber.Exception (catch, try, bracketOnError)
 import System.IO.Error 
 import GHC.Conc (closeFdWith) -- blocking?
 import GHC.IO.Exception
--- import Data.Streaming.Network (HostPreference)
 import Control.Monad.IO.Class (liftIO)
 
 
@@ -210,7 +210,6 @@ connect sock@(MkSocket s _family _stype _protocol socketStatus) addr = withSocke
         connectLoop
         return Connected
  where
-   -- TODO: add sock as Show instance
    errLoc = "Control.Concurrent.Fiber.Network.connect: " -- ++ show sock
    shouldError NotConnected = False
    shouldError (Bound _) = False
@@ -367,7 +366,7 @@ socket family stype protocol = do
     -- The IPv6Only option is only supported on Windows Vista and later,
     -- so trying to change it might throw an error.
     when (family == AF_INET6 && (stype == Stream || stype == Datagram)) $
-      catch (liftIO $ setSocketOption sock IPv6Only 0) $ (\(_ :: IOException) -> return ())
+      catch (liftIO $ setSocketOption sock IPv6Only 0) (\(_ :: IOException) -> return ())
 # else
     when (family == AF_INET6 && (stype == Stream || stype == Datagram)) $
       setSocketOption sock IPv6Only 0 `onException` close sock
@@ -412,45 +411,6 @@ bind (MkSocket s _family _stype _protocol socketStatus) addr = do
        _status <- c_bind s saddr
        return (Bound addr)
 
--- #if defined(HAVE_STRUCT_UCRED) || defined(HAVE_GETPEEREID)
--- | Returns the processID, userID and groupID of the socket's peer.
---
--- Only available on platforms that support SO_PEERCRED or GETPEEREID(3)
--- on domain sockets.
--- GETPEEREID(3) returns userID and groupID. processID is always 0.
--- getPeerCred :: Socket -> Fiber (CUInt, CUInt, CUInt)
--- getPeerCred sock = do
--- #ifdef HAVE_STRUCT_UCRED
---   let fd = fdSocket sock
---   let sz = (#const sizeof(struct ucred))
---   liftIO $ allocaBytes sz $ \ ptr_cr ->
---    with (fromIntegral sz) $ \ ptr_sz -> fiber $ do
---      _ <- ($) throwSocketErrorIfMinus1Retry "Control.Concurrent.Fiber.Network.getPeerCred" $
---        c_getsockopt fd (#const SOL_SOCKET) (#const SO_PEERCRED) ptr_cr ptr_sz
---      pid <- liftIO $ (#peek struct ucred, pid) ptr_cr
---      uid <- liftIO $ (#peek struct ucred, uid) ptr_cr
---      gid <- liftIO $ (#peek struct ucred, gid) ptr_cr
---      return (pid, uid, gid)
--- #else
---   (uid,gid) <- getPeerEid sock
---   return (0,uid,gid)
--- #endif
-
--- #ifdef HAVE_GETPEEREID
--- -- | The getpeereid() function returns the effective user and group IDs of the
--- -- peer connected to a UNIX-domain socket
--- getPeerEid :: Socket -> Fiber (CUInt, CUInt)
--- getPeerEid sock = do
---   let fd = fdSocket sock
---   liftIO $ alloca $ \ ptr_uid ->
---     alloca $ \ ptr_gid -> fiber $ do
---       throwSocketErrorIfMinus1Retry_ "Control.Concurrent.Fiber.Network.getPeerEid" $
---         c_getpeereid fd ptr_uid ptr_gid
---       uid <- liftIO $ peek ptr_uid
---       gid <- liftIO $ peek ptr_gid
---       return (uid, gid)
--- #endif
--- #endif
 
 defaultHints :: AddrInfo
 defaultHints = AddrInfo {
@@ -509,7 +469,7 @@ defaultSocketOptions sockettype =
         _           -> [(NS.NoDelay,1), (NS.ReuseAddr,1)]
 
 bindPortTCP :: Int -> HostPreference -> Fiber Socket
-bindPortTCP p s = do
+bindPortTCP p s = do 
     sock <- bindPortGen (NS.ServerSocket Stream) p s
     listen sock (max 2048 NS.maxListenQueue)
     return sock
