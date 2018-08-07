@@ -49,6 +49,7 @@ module Control.Concurrent.Fiber.Network
 #endif
   , maxListenQueue
 
+  -- regular functions on socket
   ,accept
   ,connect
   ,listen
@@ -63,6 +64,7 @@ module Control.Concurrent.Fiber.Network
   ,bind
   ,close'
 
+  -- basic and utility functions that were not in `network`
   ,readRawBufferPtr
   ,writeRawBufferPtr
   ,bindPortTCP

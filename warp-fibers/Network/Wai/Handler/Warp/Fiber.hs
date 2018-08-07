@@ -19,6 +19,7 @@ import qualified Control.Exception as IE
 import GHC.Conc.Sync (ThreadId(..))
 import Control.Monad (void)
 
+-- | Fork Fiber and wait on it, usually used in main thread to avoid terminating the program
 forkFiberAndWait :: Fiber a -> IO ()
 forkFiberAndWait f = do
     m <- IM.newEmptyMVar 
@@ -27,6 +28,7 @@ forkFiberAndWait f = do
     IM.takeMVar m
     return ()
 
+-- | Not safe! Can only be used if you are sure there's no `yield` or `block` in the Fiber monad
 fiber :: Fiber a -> IO a
 fiber = runFiber
 
