@@ -28,15 +28,15 @@ withDateCache action = initialize >>= action
 
 initialize :: Fiber (Fiber GMTDate)
 initialize = liftIO $ liftIO <$> (mkAutoUpdate defaultUpdateSettings {
-                            updateAction = fiber $ formatHTTPDate <$> getCurrentHTTPDate
+                            updateAction = formatHTTPDate <$> getCurrentHTTPDate
                           })
 
 -- #ifdef WINDOWS
 uToH :: UTCTime -> HTTPDate
 uToH = epochTimeToHTTPDate . CTime . truncate . utcTimeToPOSIXSeconds
 
-getCurrentHTTPDate :: Fiber HTTPDate
-getCurrentHTTPDate =  liftIO $ uToH <$> getCurrentTime
+getCurrentHTTPDate :: IO HTTPDate
+getCurrentHTTPDate =  uToH <$> getCurrentTime
 -- #else
 -- getCurrentHTTPDate :: IO HTTPDate
 -- getCurrentHTTPDate = epochTimeToHTTPDate <$> epochTime

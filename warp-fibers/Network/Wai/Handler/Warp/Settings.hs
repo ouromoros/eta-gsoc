@@ -6,7 +6,8 @@ module Network.Wai.Handler.Warp.Settings where
 
 -- import Control.Concurrent (forkIOWithUnmask)
 import Control.Concurrent.Fiber
-import Control.Exception
+import Control.Concurrent.Fiber.Exception
+import Control.Exception (SomeException, fromException, AsyncException(..))
 import Data.ByteString.Builder (byteString)
 import qualified Data.ByteString.Char8 as C8
 import Data.Streaming.Network (HostPreference)
@@ -17,15 +18,17 @@ import GHC.IO.Exception (IOErrorType(..))
 import qualified Network.HTTP.Types as H
 -- import Network.Socket (SockAddr)
 import Control.Concurrent.Fiber.Network (SockAddr)
-import Network.Wai
+import Network.Wai hiding (Request, Response, responseBuilder, responseLBS)
+import Network.Wai.Handler.Warp.ResponseBuilder
 import qualified Paths_warp_fibers
 import System.IO (stderr)
 import System.IO.Error (ioeGetErrorType)
-import GHC.IO (unsafeUnmask)
+-- import GHC.IO (unsafeUnmask)
 
 import Network.Wai.Handler.Warp.Imports
 import Network.Wai.Handler.Warp.Timeout
 import Network.Wai.Handler.Warp.Types
+import Network.Wai.Handler.Warp.ResponseBuilder
 
 -- | Various Warp server settings. This is purposely kept as an abstract data
 -- type so that new settings can be added without breaking backwards
@@ -190,5 +193,4 @@ exceptionResponseForDebug e =
                     $ byteString . C8.pack $ "Exception: " ++ show e
 
 forkFiberWithUnmask :: ((forall a . Fiber a -> Fiber a) -> Fiber ()) -> IO ()
-forkFiberWithUnmask f = void $ forkFiber (f unmaskFiber)
-  where unmaskFiber = liftIO . unsafeUnmask . fiber
+forkFiberWithUnmask f = void $ forkFiber (f unsafeUnmask)

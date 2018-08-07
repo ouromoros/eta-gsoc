@@ -11,11 +11,9 @@ module Control.Concurrent.Fiber.Network.Internal
   ,SocketAddress
   ,PortNumber
   ,HostAddress
+
   ,mkInetSocketAddress
   ,getByAddress
-
-  ,readMVar
-  ,fiber
 
   ,threadWaitAccept
   ,threadWaitConnect
@@ -35,20 +33,16 @@ module Control.Concurrent.Fiber.Network.Internal
   ,isAcceptable
 
   ,toJByteArray
-  ,throwErrno
-  ,throwErrnoIfRetry
-  ,throwErrnoIfMinus1Retry
-  ,throwErrnoIfMinus1RetryMayBlock
-  ,throwErrnoIfRetryMayBlock
   ,throwSocketErrorIfMinus1Retry
   ,throwSocketErrorWaitRead
   ,throwSocketErrorWaitWrite
     )
   where
+import qualified Control.Concurrent.MVar as M
 import Control.Concurrent.Fiber
 import Control.Concurrent.Fiber.MVar
 import System.Posix.Types (Channel(..))
-import Network.Socket (SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..), HostAddress, PortNumber)
+import Network.Socket (SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..), HostAddress, PortNumber, Socket(..))
 import qualified Network.Socket as NS
 import Foreign.C.Error (eINTR, getErrno, throwErrno, eWOULDBLOCK, eAGAIN)
 import Control.Exception.Base (evaluate)
@@ -62,15 +56,7 @@ import GHC.IO.FD (FD(..), FDType(..))
 import GHC.Base
 import Java
 import Java.Core
-
-data Socket
-  = MkSocket
-            Channel              -- File Descriptor
-            Family
-            SocketType
-            ProtocolNumber       -- Protocol Number
-            (MVar SocketStatus)  -- Status Flag
-  deriving Typeable
+import Control.Monad.IO.Class (liftIO)
 
 data {-# CLASS "java.net.InetSocketAddress" #-} InetSocketAddress =
   ISA (Object# InetSocketAddress)
@@ -86,9 +72,6 @@ foreign import java unsafe "@new" mkInetSocketAddress
   :: InetAddress -> Int -> InetSocketAddress
 
 foreign import java unsafe "@static java.net.InetAddress.getByAddress" getByAddress :: JByteArray -> InetAddress
-
-fiber :: Fiber a -> IO a
-fiber (Fiber a) = IO a
 
 foreign import java unsafe "@static eta.network.Utils.getsockopt"
   c_getsockopt' :: Channel -> SOption -> IO CInt
@@ -107,21 +90,29 @@ foreign import java unsafe "@static eta.network.Utils.isBlocking"
 
 
 registerRead :: Channel -> Fiber ()
-registerRead (Channel o) = Fiber $ \s ->
-  case registerRead# o s of
-    s' -> (# s', () #)
+registerRead = liftIO . registerRead'
+  where
+    registerRead' (Channel o) = IO $ \s ->
+      case registerRead# o s of
+        s' -> (# s', () #)
 registerWrite :: Channel -> Fiber ()
-registerWrite (Channel o) = Fiber $ \s ->
-  case registerWrite# o s of
-    s' -> (# s', () #)
+registerWrite = liftIO . registerWrite'
+  where
+    registerWrite' (Channel o) = IO $ \s ->
+      case registerWrite# o s of
+        s' -> (# s', () #)
 registerAccept :: Channel -> Fiber ()
-registerAccept (Channel o) = Fiber $ \s ->
-  case registerAccept# o s of
-    s' -> (# s', () #)
+registerAccept = liftIO . registerAccept'
+  where
+    registerAccept' (Channel o) = IO $ \s ->
+      case registerAccept# o s of
+        s' -> (# s', () #)
 registerConnect :: Channel -> Fiber ()
-registerConnect (Channel o) = Fiber $ \s ->
-  case registerConnect# o s of
-    s' -> (# s', () #)
+registerConnect = liftIO . registerConnect'
+  where
+    registerConnect' (Channel o) = IO $ \s ->
+      case registerConnect# o s of
+        s' -> (# s', () #)
 
 threadWaitRead :: Channel -> Fiber ()
 threadWaitRead c = registerRead c >> block
@@ -141,42 +132,10 @@ foreign import prim "eta.fiber.network.Utils.registerWrite"
 foreign import prim "eta.fiber.network.Utils.registerConnect"
   registerConnect# :: Object# a -> State# s -> State# s
 
--- foreign import prim "eta.fiber.network.Utils.waitAccept"
---   threadWaitAccept# :: Object# a -> State# s -> State# s
--- foreign import prim "eta.fiber.network.Utils.waitConnect"
---   threadWaitConnect# :: Object# a -> State# s -> State# s
--- foreign import prim "eta.fiber.network.Utils.waitRead"
---   threadWaitRead# :: Object# a -> State# s -> State# s
--- foreign import prim "eta.fiber.network.Utils.waitWrite"
---   threadWaitWrite# :: Object# a -> State# s -> State# s
-
--- threadWaitAccept :: Channel -> Fiber ()
--- threadWaitAccept (Channel o) = Fiber $ \s ->
---   case threadWaitAccept# o s of
---     s' -> (# s', () #)
--- threadWaitConnect :: Channel -> Fiber ()
--- threadWaitConnect (Channel o) = Fiber $ \s ->
---   case threadWaitConnect# o s of
---     s' -> (# s', () #)
--- threadWaitWrite :: Channel -> Fiber ()
--- threadWaitWrite (Channel o) = Fiber $ \s ->
---   case threadWaitWrite# o s of
---     s' -> (# s', () #)
--- threadWaitRead :: Channel -> Fiber ()
--- threadWaitRead (Channel o) = Fiber $ \s ->
---   case threadWaitRead# o s of
---     s' -> (# s', () #)
-
 getSockAddr = liftIO . getSockAddr'
 c_setsockopt c so i = liftIO $ c_setsockopt' c so i
 c_getsockopt c so = liftIO $ c_getsockopt' c so
 isBlocking = liftIO . isBlocking'
-
-readMVar :: MVar a -> Fiber a
-readMVar m = do
-  a <- takeMVar m
-  putMVar m a
-  return a
 
 toJByteArray :: [Word8] -> JByteArray
 toJByteArray word8s = toJava bytes
@@ -207,13 +166,6 @@ socket2FD  (MkSocket fd _ _ _ _) = do
   return $ FD { fdFD = FDGeneric fd, fdIsNonBlocking = not blocking }
 
 isAcceptable :: Socket -> Fiber Bool
--- #if defined(DOMAIN_SOCKET_SUPPORT)
--- isAcceptable (MkSocket _ AF_UNIX x _ status)
---     | x == Stream || x == SeqPacket = do
---         value <- readMVar status
---         return (value == Connected || value == Bound || value == Listening)
--- isAcceptable (MkSocket _ AF_UNIX _ _ _) = return False
--- #endif
 isAcceptable (MkSocket _ _ _ _ status) = do
     value <- readMVar status
     return (value == Connected || value == Listening)

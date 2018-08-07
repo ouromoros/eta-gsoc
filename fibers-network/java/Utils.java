@@ -15,49 +15,20 @@ public class Utils{
     public static void setNonBlock(Channel c) throws IOException{
         ((SelectableChannel) c).configureBlocking(false);
     }
-    public static void waitAccept(StgContext s, Channel c){
-        Concurrent.waitAccept(s, c);
+    public static void registerRead(StgContext s, Channel c) throws IOException{
+        SelectableChannel selectChannel = (SelectableChannel) c;
+        selectChannel.register(Concurrent.globalSelector, SelectionKey.OP_READ, s.currentTSO);
     }
-    public static void waitConnect(StgContext s, Channel c){
-        Concurrent.waitConnect(s, c);
+    public static void registerWrite(StgContext s, Channel c) throws IOException{
+        SelectableChannel selectChannel = (SelectableChannel) c;
+        selectChannel.register(Concurrent.globalSelector, SelectionKey.OP_WRITE, s.currentTSO);
     }
-    public static void waitRead(StgContext s, Channel c){
-        Concurrent.waitWrite(s, c);
+    public static void registerAccept(StgContext s, Channel c) throws IOException{
+        SelectableChannel selectChannel = (SelectableChannel) c;
+        selectChannel.register(Concurrent.globalSelector, SelectionKey.OP_ACCEPT, s.currentTSO);
     }
-    public static void waitWrite(StgContext s, Channel c){
-        Concurrent.waitRead(s, c);
-    }
-    public static void registerRead(StgContext s, Channel c){
-        try{
-            SelectableChannel selectChannel = (SelectableChannel) c;
-            selectChannel.register(Concurrent.globalSelector, SelectionKey.OP_READ, s.currentTSO);
-        } catch(ClosedChannelException e){
-
-        }
-    }
-    public static void registerWrite(StgContext s, Channel c){
-        try{
-            SelectableChannel selectChannel = (SelectableChannel) c;
-            selectChannel.register(Concurrent.globalSelector, SelectionKey.OP_WRITE, s.currentTSO);
-        } catch(ClosedChannelException e){
-
-        }
-    }
-    public static void registerAccept(StgContext s, Channel c){
-        try{
-            SelectableChannel selectChannel = (SelectableChannel) c;
-            if(s.currentTSO==null||s.currentTSO.cap==null) System.out.println("I knew!");
-            selectChannel.register(Concurrent.globalSelector, SelectionKey.OP_ACCEPT, s.currentTSO);
-        } catch(ClosedChannelException e){
-
-        }
-    }
-    public static void registerConnect(StgContext s, Channel c){
-        try{
-            SelectableChannel selectChannel = (SelectableChannel) c;
-            selectChannel.register(Concurrent.globalSelector, SelectionKey.OP_CONNECT, s.currentTSO);
-        } catch(ClosedChannelException e){
-
-        }
+    public static void registerConnect(StgContext s, Channel c) throws IOException{
+        SelectableChannel selectChannel = (SelectableChannel) c;
+        selectChannel.register(Concurrent.globalSelector, SelectionKey.OP_CONNECT, s.currentTSO);
     }
 }

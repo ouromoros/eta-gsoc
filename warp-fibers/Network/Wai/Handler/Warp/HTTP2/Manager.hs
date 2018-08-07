@@ -56,8 +56,8 @@ start set = do
       where
         next tset = do
             action <- liftIO $ readIORef ref
-            newtid <- liftIO $ forkFiber (action timmgr)
-            let !tset' = add newtid tset
+            newtid <- forkFiber (action timmgr)
+            let !tset' = add (toThreadId newtid) tset
             go q tset' ref timmgr
 
 setAction :: Manager -> Action -> Fiber ()

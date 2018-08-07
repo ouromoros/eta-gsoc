@@ -1,0 +1,12 @@
+packages: echo-server
+          fibers-network
+          warp-demo
+          warp-fibers
+          warp
+          eta-fibers-new
+          temp
+
+source-repository-package
+  type: git
+  location: https://github.com/rahulmutt/eta-fibers-dev
+  commit: fa546db173c28b5933e31dac26a2c400694ab78e

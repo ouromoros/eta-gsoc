@@ -8,8 +8,10 @@ module Network.Wai.Handler.Warp.Buffer (
   , newBufferPool
   , withBufferPool
   , toBuilderBuffer
+  , toBuilderBuffer'
   , copy
   , bufferIO
+  , copy'
   ) where
 
 import qualified Data.ByteString as BS
@@ -17,9 +19,11 @@ import Data.ByteString.Internal (memcpy)
 import Data.ByteString.Unsafe (unsafeTake, unsafeDrop)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import qualified Data.Streaming.ByteString.Builder.Buffer as B (Buffer (..))
-import Foreign.ForeignPtr
 import Foreign.Marshal.Alloc (mallocBytes, free, finalizerFree)
 import Foreign.Ptr (castPtr, plusPtr)
+import Foreign.ForeignPtr (newForeignPtr, newForeignPtr_)
+import Control.Concurrent.Fiber.Network.Internal1 (withForeignPtr)
+import qualified Foreign.ForeignPtr as F
 
 import Network.Wai.Handler.Warp.Imports
 import Network.Wai.Handler.Warp.Types
@@ -74,7 +78,7 @@ putBuffer pool buffer = liftIO $ writeIORef pool buffer
 {-# INLINE putBuffer #-}
 
 withForeignBuffer :: ByteString -> ((Buffer, BufSize) -> Fiber Int) -> Fiber Int
-withForeignBuffer (PS ps s l) f = liftIO $ withForeignPtr ps (fiber . \p -> f (castPtr p `plusPtr` s, l))
+withForeignBuffer (PS ps s l) f = withForeignPtr ps (\p -> f (castPtr p `plusPtr` s, l))
 {-# INLINE withForeignBuffer #-}
 
 withBufferPool :: BufferPool -> ((Buffer, BufSize) -> Fiber Int) -> Fiber ByteString
@@ -95,13 +99,24 @@ toBuilderBuffer ptr size = do
     fptr <- liftIO $ newForeignPtr_ ptr
     return $ B.Buffer fptr ptr ptr (ptr `plusPtr` size)
 
+toBuilderBuffer' :: Buffer -> BufSize -> IO B.Buffer
+toBuilderBuffer' ptr size = do
+    fptr <- newForeignPtr_ ptr
+    return $ B.Buffer fptr ptr ptr (ptr `plusPtr` size)
+
 -- | Copying the bytestring to the buffer.
 --   This function returns the point where the next copy should start.
 copy :: Buffer -> ByteString -> Fiber Buffer
-copy !ptr (PS fp o l) = liftIO $ withForeignPtr fp $ \p -> do
-    memcpy ptr (p `plusPtr` o) (fromIntegral l)
+copy !ptr (PS fp o l) = withForeignPtr fp $ \p -> do
+    liftIO $ memcpy ptr (p `plusPtr` o) (fromIntegral l)
     return $! ptr `plusPtr` l
 {-# INLINE copy #-}
+
+copy' :: Buffer -> ByteString -> IO Buffer
+copy' !ptr (PS fp o l) = F.withForeignPtr fp $ \p -> do
+    memcpy ptr (p `plusPtr` o) (fromIntegral l)
+    return $! ptr `plusPtr` l
+{-# INLINE copy' #-}
 
 bufferIO :: Buffer -> Int -> (ByteString -> Fiber ()) -> Fiber ()
 bufferIO ptr siz io = do

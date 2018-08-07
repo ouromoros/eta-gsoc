@@ -18,11 +18,12 @@ cabal-version:       >=1.10
 library
   exposed-modules:     Control.Concurrent.Fiber.Network
                       ,Control.Concurrent.Fiber.Network.Internal
-  -- other-modules:       Control.Concurrent.Fiber.Network.Internal
+                      ,Control.Concurrent.Fiber.Network.Internal1
   -- other-extensions:    
   build-depends:       base >=4.8 && <4.9
                       ,network
-                      ,eta-fibers-dev
+                      -- ,eta-fibers-dev
+                      ,eta-fibers-new
                       ,bytestring
                       ,streaming-commons
   hs-source-dirs:      src

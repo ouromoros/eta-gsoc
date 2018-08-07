@@ -13,7 +13,8 @@ module Network.Wai.Handler.Warp.HTTP2.Worker (
 
 import Control.Concurrent.STM
 import Control.Exception (SomeException(..), AsyncException(..))
-import qualified Control.Exception as E
+import qualified Control.Concurrent.Fiber.Exception as E
+import qualified Control.Exception as IE
 import Data.ByteString.Builder (byteString)
 import Data.IORef
 import qualified Data.Vault.Lazy as Vault
@@ -22,9 +23,10 @@ import Network.HPACK.Token
 import qualified Network.HTTP.Types as H
 import Network.HTTP2
 import Network.HTTP2.Priority
-import Network.Wai
+-- import Network.Wai hiding (Application, Request(..))
 import qualified Network.Wai.Handler.Warp.Timeout as Timeout
-import Network.Wai.Internal (Response(..), ResponseReceived(..), ResponseReceived(..))
+-- import Network.Wai.Internal (Response(..), ResponseReceived(..), ResponseReceived(..))
+import Network.Wai.Internal (ResponseReceived(..), FilePart(..))
 
 import Network.Wai.Handler.Warp.FileInfoCache
 import Network.Wai.Handler.Warp.HTTP2.EncodeFrame
@@ -83,9 +85,9 @@ pushStream ctx@Context{http2settings,outputQ,streamTable}
     push _ [] !n = return (n :: Int)
     push tvar (pp:pps) !n = do
         let !file = promisedFile pp
-        efinfo <- liftIO $ E.try $ fiber $ getFileInfo ii file
+        efinfo <- E.try $ getFileInfo ii file
         case efinfo of
-          Left (_ex :: E.IOException) -> push tvar pps n
+          Left (_ex :: IE.IOException) -> push tvar pps n
           Right (FileInfo _ size _ date) -> do
               ws <- liftIO $ initialWindowSize <$> readIORef http2settings
               let !w = promisedWeight pp
@@ -172,9 +174,9 @@ response settings ctx@Context{outputQ} mgr ii reqvt tconf strm req rsp = case rs
         return ResponseReceived
 
     responseFileXXX _ hs0 path Nothing aux = do
-        efinfo <- liftIO $ E.try $ fiber $ getFileInfo ii path
+        efinfo <- E.try $ getFileInfo ii path
         case efinfo of
-            Left (_ex :: E.IOException) -> response404 hs0
+            Left (_ex :: IE.IOException) -> response404 hs0
             Right finfo -> do
                 (rspths0,vt) <- liftIO $ toHeaderTable hs0
                 case conditionalRequest finfo rspths0 reqvt of
@@ -221,12 +223,12 @@ response settings ctx@Context{outputQ} mgr ii reqvt tconf strm req rsp = case rs
         let !rspn = RspnStreaming s0 tbl tbq
             !out = Output strm rspn ii tell h2data rspnOrWait
         enqueueOutput outputQ out
-        let push b = do
-              T.pause th
-              liftIO $ atomically $ writeTBQueue tbq (SBuilder b)
-              T.resume th
-            flush  = atomically $ writeTBQueue tbq SFlush
-        _ <- liftIO $ strmbdy (fiber . push) flush
+        let push b = liftIO $ do
+              T.pause' th
+              atomically $ writeTBQueue tbq (SBuilder b)
+              T.resume' th
+            flush  = liftIO $ atomically $ writeTBQueue tbq SFlush
+        _ <- strmbdy push flush
         liftIO $ atomically $ writeTBQueue tbq SFinish
         deleteMyId mgr
         return ResponseReceived
@@ -236,33 +238,33 @@ worker ctx@Context{inputQ,controlQ} set app responder tm = do
     sinfo <- newStreamInfo
     tcont <- newThreadContinue
     let timeoutAction = return () -- cannot close the shared connection
-    liftIO $ E.bracket (fiber $ T.registerKillThread tm timeoutAction) (fiber . T.cancel) (fiber . go sinfo tcont)
+    E.bracket (T.registerKillThread tm timeoutAction) T.cancel (go sinfo tcont)
   where
     go sinfo tcont th = do
         setThreadContinue tcont True
-        ex <- liftIO $ E.try $ fiber $ do
+        ex <- E.try $ do
             T.pause th
             inp@(Input strm req reqvt ii) <- liftIO $ atomically $ readTQueue inputQ
             setStreamInfo sinfo inp
             T.resume th
             T.tickle th
             let !ii' = ii { threadHandle = th }
-                !body = liftIO $ requestBody req
+                !body = requestBody req
                 !body' = do
                     T.pause th
                     bs <- body
                     T.resume th
                     return bs
                 !vaultValue = Vault.insert pauseTimeoutKey (Timeout.pause th) $ vault req
-                !req' = req { vault = vaultValue, requestBody = (fiber body') }
-            liftIO $ app req' (fiber . responder ii' reqvt tcont strm req')
+                !req' = req { vault = vaultValue, requestBody = body' }
+            app req' (responder ii' reqvt tcont strm req')
         cont1 <- case ex of
             Right ResponseReceived -> return True
             Left  e@(SomeException _)
               -- killed by the local worker manager
-              | Just ThreadKilled    <- E.fromException e -> return False
+              | Just ThreadKilled    <- IE.fromException e -> return False
               -- killed by the local timeout manager
-              | Just T.TimeoutThread <- E.fromException e -> do
+              | Just T.TimeoutThread <- IE.fromException e -> do
                   cleanup sinfo Nothing
                   return True
               | otherwise -> do

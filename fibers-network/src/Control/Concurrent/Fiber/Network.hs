@@ -1,3 +1,6 @@
+-- | Non-blocking network IO functions for eta-fibers.
+-- Contains most basic network operations and types imported from `network`
+
 module Control.Concurrent.Fiber.Network
   (SocketType(..)
   ,Family(..)
@@ -46,6 +49,7 @@ module Control.Concurrent.Fiber.Network
 #endif
   , maxListenQueue
 
+  -- regular functions on socket
   ,accept
   ,connect
   ,listen
@@ -54,10 +58,13 @@ module Control.Concurrent.Fiber.Network
   ,sendBuf
   ,sendMany
   ,recv
+  ,recvBuf
   ,close
   ,socket
   ,bind
+  ,close'
 
+  -- basic and utility functions that were not in `network`
   ,readRawBufferPtr
   ,writeRawBufferPtr
   ,bindPortTCP
@@ -70,8 +77,8 @@ module Control.Concurrent.Fiber.Network
 
 import Control.Concurrent.Fiber.Network.Internal
 
-import Control.Concurrent.Fiber (Fiber(..), liftIO, takeMVar, putMVar)
-import qualified Control.Concurrent.Fiber as F
+import Control.Concurrent.Fiber (Fiber(..))
+import Control.Concurrent.Fiber.MVar (takeMVar, putMVar, readMVar)
 import qualified Control.Concurrent.MVar as M
 
 import qualified Network.Socket as NS
@@ -92,14 +99,16 @@ import Data.Streaming.Network.Internal (HostPreference(..))
 import Network.Socket (AddrInfo(..), SocketType(..), Family(..), ProtocolNumber(..), SocketStatus(..), SockAddr(..), SocketOption(..), AddrInfoFlag(..), NameInfoFlag(..), defaultProtocol)
 
 import Data.ByteString (ByteString)
-import Data.ByteString.Internal (createAndTrim)
-import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
+import Control.Concurrent.Fiber.Network.Internal1 (createAndTrim, unsafeUseAsCStringLen)
 import Control.Monad
-import Control.Exception (throwIO, catch, IOException, bracketOnError, try)
+import Control.Exception (throwIO, IOException)
+import Control.Concurrent.Fiber.Exception (catch, try, bracketOnError)
 import System.IO.Error 
 import GHC.Conc (closeFdWith) -- blocking?
 import GHC.IO.Exception
--- import Data.Streaming.Network (HostPreference)
+import Control.Monad.IO.Class (liftIO)
+
+
 
 foreign import java unsafe "@static eta.network.Utils.connect"
   c_connect' :: Channel -> SocketAddress -> IO Bool
@@ -130,8 +139,12 @@ c_bind c sa = liftIO $ c_bind' c sa
 c_socket family t p = liftIO $ c_socket' family t p
 c_sendto c p s sa = liftIO $ c_sendto' c p s sa
 
-newMVar = liftIO . F.newMVar
-modifyMVar_ m f = liftIO $ M.modifyMVar_ m (\x -> fiber (f x))
+newMVar = liftIO . M.newMVar
+modifyMVar_ m f = do
+  v <- takeMVar m
+  v' <- f v
+  putMVar m v'
+
 getAddrInfo mHints node service = liftIO $ NS.getAddrInfo mHints node service
 getNameInfo f h s addr = liftIO $ NS.getNameInfo f h s addr
 
@@ -160,7 +173,7 @@ accept sock@(MkSocket s family stype protocol status) = do
  if not okay
    then
      liftIO $ ioError $ userError $
-       "Network.Socket.accept: can't accept socket (" ++
+       "Control.Concurrent.Fiber.Network.accept: can't accept socket (" ++
          show (family, stype, protocol) ++ ") with status not in position to accept" ++
          "connections."
    else do
@@ -199,8 +212,7 @@ connect sock@(MkSocket s _family _stype _protocol socketStatus) addr = withSocke
         connectLoop
         return Connected
  where
-   -- TODO: add sock as Show instance
-   errLoc = "Network.Socket.connect: " -- ++ show sock
+   errLoc = "Control.Concurrent.Fiber.Network.connect: " -- ++ show sock
    shouldError NotConnected = False
    shouldError (Bound _) = False
    shouldError _ = True
@@ -215,7 +227,7 @@ listen (MkSocket s _family _stype _protocol socketStatus) backlog = do
         return Listening
       | otherwise ->
         liftIO $ ioError $ userError $
-          "Network.Socket.listen: can't listen on socket with non-bound status."
+          "Control.Concurrent.Network.listen: can't listen on socket with non-bound status."
 
 mkInvalidRecvArgError :: String -> IOError
 mkInvalidRecvArgError loc = ioeSetErrorString (mkIOError
@@ -229,36 +241,37 @@ recv :: Socket         -- ^ Connected socket
      -> Int            -- ^ Maximum number of bytes to receive
      -> Fiber ByteString  -- ^ Data received
 recv sock nbytes
-    | nbytes < 0 = liftIO $ ioError (mkInvalidRecvArgError "Network.Socket.ByteString.recv")
-    | otherwise  = liftIO $ createAndTrim nbytes $ \ptr ->
+    | nbytes < 0 = liftIO $ ioError (mkInvalidRecvArgError "Control.Concurre.Fiber.Network.ByteString.recv")
+    -- fix here
+    | otherwise  = createAndTrim nbytes $ \ptr ->
         catch
-          (fiber (recvBuf sock ptr nbytes))
-          (\e -> if isEOFError e then return 0 else throwIO e)
+          (recvBuf sock ptr nbytes)
+          (\e -> if isEOFError e then return 0 else liftIO $ throwIO e)
 
 recvBuf :: Socket -> Ptr Word8 -> Int -> Fiber Int
 recvBuf sock@(MkSocket s _family _stype _protocol _status) ptr nbytes
- | nbytes <= 0 = liftIO $ ioError (mkInvalidRecvArgError "Network.Socket.recvBuf")
+ | nbytes <= 0 = liftIO $ ioError (mkInvalidRecvArgError "Control.Concurre.Fiber.Network.recvBuf")
  | otherwise   = do
         fd <- socket2FD sock
         len <-
-            throwSocketErrorIfMinus1Retry "Network.Socket.recvBuf" $
-                readRawBufferPtr "Network.Socket.recvBuf"
+            -- throwSocketErrorIfMinus1Retry "Control.Concurre.Fiber.Network.recvBuf" $
+                readRawBufferPtr "Control.Concurre.Fiber.Network.recvBuf"
                 fd ptr 0 (fromIntegral nbytes)
         let len' = fromIntegral len
-        if len' == 0
-         then liftIO $ ioError (mkEOFError "Network.Socket.recvBuf")
+        if len' == -1
+         then liftIO $ ioError (mkEOFError "Control.Concurre.Fiber.Network.recvBuf")
          else return len'
 
 recvBufFrom :: Socket -> Ptr a -> Int -> Fiber (Int, SockAddr)
 recvBufFrom sock@(MkSocket s family _stype _protocol _status) ptr nbytes
- | nbytes <= 0 = liftIO $ ioError (mkInvalidRecvArgError "Network.Socket.recvFrom")
+ | nbytes <= 0 = liftIO $ ioError (mkInvalidRecvArgError "Control.Concurre.Fiber.Network.recvFrom")
  | otherwise   = error "recvBufFrom: Not implemented yet"
 
 send :: Socket      -- ^ Connected socket
      -> ByteString  -- ^ Data to send
      -> Fiber Int      -- ^ Number of bytes sent
-send sock xs = liftIO $ unsafeUseAsCStringLen xs $ \(str, len) ->
-  fiber $ sendBuf sock (castPtr str) len
+send sock xs = unsafeUseAsCStringLen xs $ \(str, len) ->
+  sendBuf sock (castPtr str) len
 
 sendAll :: Socket      -- ^ Connected socket
         -> ByteString  -- ^ Data to send
@@ -283,8 +296,8 @@ sendBuf sock@(MkSocket s _family _stype _protocol _status) str len = do
 -- on x86_64 because of GHC bug #12010 so we duplicate the check here. The call
 -- to throwSocketErrorIfMinus1Retry can be removed when no GHC version with the
 -- bug is supported.
-    throwSocketErrorIfMinus1Retry "Network.Socket.sendBuf" $ writeRawBufferPtr
-      "Network.Socket.sendBuf"
+    throwSocketErrorIfMinus1Retry "Control.Concurre.Fiber.Network.sendBuf" $ writeRawBufferPtr
+      "Control.Concurre.Fiber.Network.Socket.sendBuf"
       fd
       (castPtr str)
       0
@@ -295,7 +308,7 @@ sendTo :: Socket      -- ^ Socket
        -> SockAddr    -- ^ Recipient address
        -> Fiber Int      -- ^ Number of bytes sent
 sendTo sock xs addr =
-    liftIO $  unsafeUseAsCStringLen xs $ \(str, len) -> fiber $ sendBufTo sock str len addr
+    unsafeUseAsCStringLen xs $ \(str, len) -> sendBufTo sock str len addr
 
 sendAllTo :: Socket      -- ^ Socket
           -> ByteString  -- ^ Data to send
@@ -312,7 +325,7 @@ sendBufTo :: Socket            -- (possibly) bound/connected Socket
 sendBufTo sock@(MkSocket s _family _stype _protocol _status) ptr nbytes addr = do
  withSockAddr addr $ \p_addr -> do
    liftM fromIntegral $
-     throwSocketErrorWaitWrite sock "Network.Socket.sendTo" $
+     throwSocketErrorWaitWrite sock "Control.Concurre.Fiber.Network.sendTo" $
         c_sendto s ptr (fromIntegral $ nbytes) p_addr
 
 closeFd = c_close
@@ -326,6 +339,16 @@ close (MkSocket s _ _ _ socketStatus) = do
      Closed ->
          return status
      _ -> liftIO (closeFdWith closeFd s) >> return Closed
+
+close' :: Socket -> IO ()
+close' (MkSocket s _ _ _ socketStatus) = do
+ M.modifyMVar_ socketStatus $ \ status ->
+   case status of
+     ConvertedToHandle ->
+         ioError (userError ("close: converted to a Handle, use hClose instead"))
+     Closed ->
+         return status
+     _ -> closeFdWith closeFd s >> return Closed
 
 socket :: Family         -- Family Name (usually AF_INET)
        -> SocketType     -- Socket Type (usually Stream)
@@ -345,7 +368,7 @@ socket family stype protocol = do
     -- The IPv6Only option is only supported on Windows Vista and later,
     -- so trying to change it might throw an error.
     when (family == AF_INET6 && (stype == Stream || stype == Datagram)) $
-      catch (setSocketOption sock IPv6Only 0) $ (\(_ :: IOException) -> return ())
+      catch (liftIO $ setSocketOption sock IPv6Only 0) (\(_ :: IOException) -> return ())
 # else
     when (family == AF_INET6 && (stype == Stream || stype == Datagram)) $
       setSocketOption sock IPv6Only 0 `onException` close sock
@@ -365,16 +388,16 @@ socketPort sock@(MkSocket _ AF_INET6 _ _ _) = do
 #endif
 socketPort (MkSocket _ family _ _ _) =
     liftIO $ ioError $ userError $
-      "Network.Socket.socketPort: address family '" ++ show family ++
+      "Control.Concurre.Fiber.Network.socketPort: address family '" ++ show family ++
       "' not supported."
 
 getPeerName   :: Socket -> Fiber SockAddr
 getPeerName (MkSocket s family _ _ _) =
-  error $ "Network.Socket.getPeerName: Not implemented yet."
+  error $ "Control.Concurre.Fiber.Network.getPeerName: Not implemented yet."
 
 getSocketName :: Socket -> Fiber SockAddr
 getSocketName (MkSocket s family _ _ _) =
-  error $ "Network.Socket.getSocketName: Not implemented yet."
+  error $ "Control.Concurre.Fiber.Network.getSocketName: Not implemented yet."
 
 bind :: Socket    -- Unconnected Socket
            -> SockAddr  -- Address to Bind to
@@ -384,51 +407,12 @@ bind (MkSocket s _family _stype _protocol socketStatus) addr = do
   if status /= NotConnected
     then
      liftIO $ ioError $ userError $
-       "Network.Socket.bind: can't bind to socket with non-default status."
+       "Control.Concurre.Fiber.Network.bind: can't bind to socket with non-default status."
     else do
      withSockAddr addr $ \saddr -> do
        _status <- c_bind s saddr
        return (Bound addr)
 
-#if defined(HAVE_STRUCT_UCRED) || defined(HAVE_GETPEEREID)
--- | Returns the processID, userID and groupID of the socket's peer.
---
--- Only available on platforms that support SO_PEERCRED or GETPEEREID(3)
--- on domain sockets.
--- GETPEEREID(3) returns userID and groupID. processID is always 0.
-getPeerCred :: Socket -> Fiber (CUInt, CUInt, CUInt)
-getPeerCred sock = do
-#ifdef HAVE_STRUCT_UCRED
-  let fd = fdSocket sock
-  let sz = (#const sizeof(struct ucred))
-  liftIO $ allocaBytes sz $ \ ptr_cr ->
-   with (fromIntegral sz) $ \ ptr_sz -> fiber $ do
-     _ <- ($) throwSocketErrorIfMinus1Retry "Network.Socket.getPeerCred" $
-       c_getsockopt fd (#const SOL_SOCKET) (#const SO_PEERCRED) ptr_cr ptr_sz
-     pid <- liftIO $ (#peek struct ucred, pid) ptr_cr
-     uid <- liftIO $ (#peek struct ucred, uid) ptr_cr
-     gid <- liftIO $ (#peek struct ucred, gid) ptr_cr
-     return (pid, uid, gid)
-#else
-  (uid,gid) <- getPeerEid sock
-  return (0,uid,gid)
-#endif
-
-#ifdef HAVE_GETPEEREID
--- | The getpeereid() function returns the effective user and group IDs of the
--- peer connected to a UNIX-domain socket
-getPeerEid :: Socket -> Fiber (CUInt, CUInt)
-getPeerEid sock = do
-  let fd = fdSocket sock
-  liftIO $ alloca $ \ ptr_uid ->
-    alloca $ \ ptr_gid -> fiber $ do
-      throwSocketErrorIfMinus1Retry_ "Network.Socket.getPeerEid" $
-        c_getpeereid fd ptr_uid ptr_gid
-      uid <- liftIO $ peek ptr_uid
-      gid <- liftIO $ peek ptr_gid
-      return (uid, gid)
-#endif
-#endif
 
 defaultHints :: AddrInfo
 defaultHints = AddrInfo {
@@ -483,11 +467,12 @@ defaultSocketOptions :: SocketType -> [(NS.SocketOption, Int)]
 defaultSocketOptions sockettype =
     case sockettype of
         NS.Datagram -> [(NS.ReuseAddr,1)]
+        NS.ServerSocket _ -> [(NS.ReuseAddr,1)]
         _           -> [(NS.NoDelay,1), (NS.ReuseAddr,1)]
 
 bindPortTCP :: Int -> HostPreference -> Fiber Socket
-bindPortTCP p s = do
-    sock <- bindPortGen (ServerSocket Stream) p s
+bindPortTCP p s = do 
+    sock <- bindPortGen (NS.ServerSocket Stream) p s
     listen sock (max 2048 NS.maxListenQueue)
     return sock
 
@@ -530,15 +515,15 @@ bindPortGenEx sockOpts sockettype p s = do
         theBody addr =
           -- Is this Ok?
           bracketOnError
-          (fiber (socket (NS.addrFamily addr) (NS.addrSocketType addr) (NS.addrProtocol addr)))
-          (fiber . close)
+          (socket (NS.addrFamily addr) (NS.addrSocketType addr) (NS.addrProtocol addr))
+          close
           (\sock -> do
-              mapM_ (\(opt,v) -> fiber $ setSocketOption sock opt v) sockOpts
+              mapM_ (\(opt,v) -> setSocketOption sock opt v) sockOpts
               --------
-              fiber $ bind sock (NS.addrAddress addr)
+              bind sock (NS.addrAddress addr)
               return sock
           )
-    liftIO $ tryAddrs addrs'
+    tryAddrs addrs'
 
 bindRandomPortGen :: SocketType -> HostPreference -> Fiber (Int, Socket)
 bindRandomPortGen sockettype s =
@@ -546,11 +531,11 @@ bindRandomPortGen sockettype s =
   where
     loop cnt = do
         port <- liftIO $ DSN.getUnassignedPort
-        esocket <- liftIO $ try $ fiber $ bindPortGen sockettype port s
+        esocket <- try $ bindPortGen sockettype port s
         case esocket :: Either IOException Socket of
             Left e
                 | cnt <= 1 -> error $ concat
-                    [ "Data.Streaming.Network.bindRandomPortGen: Could not get port. Last attempted: "
+                    [ "Control.Concurre.Fiber.Network: Could not get port. Last attempted: "
                     , show port
                     , ". Exception was: "
                     , show e
@@ -570,15 +555,19 @@ bindRandomPortTCP s = do
 readRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> CSize -> Fiber Int
 readRawBufferPtr loc !fd !buf !off !len = unsafe_read
   where
-    do_read call = fromIntegral `fmap`
-                      throwErrnoIfMinus1RetryMayBlock loc call
-                            (threadWaitRead (fdChannel fd))
+    do_read call = fromIntegral `fmap` retryOnNonBlock loc call (threadWaitRead (fdChannel fd))
     unsafe_read  = do_read (c_read (fdChannel fd) (buf `plusPtr` off) len)
 
 writeRawBufferPtr :: String -> FD -> Ptr Word8 -> Int -> CSize -> Fiber CInt
 writeRawBufferPtr loc !fd !buf !off !len = unsafe_write
   where
-    do_write call = fromIntegral `fmap`
-                      throwErrnoIfMinus1RetryMayBlock loc call
-                        (threadWaitWrite (fdChannel fd))
+    do_write call = fromIntegral `fmap` retryOnNonBlock loc call (threadWaitWrite (fdChannel fd))
     unsafe_write  = do_write (c_write (fdChannel fd) (buf `plusPtr` off) len)
+
+retryOnNonBlock :: (Eq a, Num a) => String -> Fiber a -> Fiber b -> Fiber a
+retryOnNonBlock loc act on_block = do
+  res <- act
+  if res == fromIntegral ((-1) :: Int)
+  then do _ <- on_block
+          retryOnNonBlock loc act on_block
+  else return res

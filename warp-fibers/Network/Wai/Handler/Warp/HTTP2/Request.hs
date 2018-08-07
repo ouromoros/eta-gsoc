@@ -18,8 +18,8 @@ import Network.HPACK.Token
 import qualified Network.HTTP.Types as H
 -- import Network.Socket (SockAddr)
 import Control.Concurrent.Fiber.Network (SockAddr)
-import Network.Wai
-import Network.Wai.Internal (Request(..))
+import Network.Wai hiding (Request(..))
+-- import Network.Wai.Internal (Request(..))
 import System.IO.Unsafe (unsafePerformIO)
 
 import Network.Wai.Handler.Warp.HTTP2.Types
@@ -52,7 +52,7 @@ mkRequest' ii1 settings addr ref (reqths,reqvt) (bodylen,body) = return (req,ii)
       , requestHeaders = headers
       , isSecure = True
       , remoteHost = addr
-      , requestBody = fiber body
+      , requestBody = body
       , vault = vaultValue
       , requestBodyLength = maybe ChunkedBody (KnownLength . fromIntegral) bodylen
       , requestHeaderHost      = mHost <|> mAuth

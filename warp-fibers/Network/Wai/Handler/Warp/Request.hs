@@ -24,10 +24,10 @@ import qualified Data.Vault.Lazy as Vault
 import qualified Network.HTTP.Types as H
 -- import Network.Socket (SockAddr)
 import Control.Concurrent.Fiber.Network (SockAddr)
-import Network.Wai
+import Network.Wai hiding (Request(..))
 import qualified Network.Wai.Handler.Warp.Timeout as Timeout
 import Network.Wai.Handler.Warp.Types
-import Network.Wai.Internal
+import Network.Wai.Internal hiding (Request(..))
 import Prelude hiding (lines)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -96,7 +96,7 @@ recvRequest firstRequest settings conn ii1 addr src = do
           , requestHeaders    = hdr
           , isSecure          = False
           , remoteHost        = addr
-          , requestBody       = fiber rbody'
+          , requestBody       = rbody'
           , vault             = vaultValue
           , requestBodyLength = bodyLength
           , requestHeaderHost      = idxhdr ! fromEnum ReqHost

@@ -8,6 +8,7 @@ module Network.Wai.Handler.Warp.FileInfoCache (
   ) where
 
 import Control.Exception as E
+import qualified Control.Concurrent.Fiber.Exception as FE
 import Control.Reaper
 import Network.HTTP.Date
 -- import System.PosixCompat.Files
@@ -80,7 +81,7 @@ getAndRegisterInfo reaper@Reaper{..} h path = do
         Just Negative     -> liftIO $ throwIO (userError "FileInfoCache:getAndRegisterInfo")
         Just (Positive x) -> return x
         Nothing           -> liftIO (positive reaper h path
-                               `E.onException` negative reaper h path)
+                               `onException` negative reaper h path)
 
 positive :: FileInfoCache -> Hash -> FilePath -> IO FileInfo
 positive Reaper{..} h path = do
@@ -103,9 +104,9 @@ withFileInfoCache :: Int
                   -> Fiber a
 withFileInfoCache 0        action = action getInfoNaive
 withFileInfoCache duration action =
-    liftIO $ E.bracket (initialize duration)
-              terminate
-              (fiber . action . getAndRegisterInfo)
+    FE.bracket (liftIO $ initialize duration)
+              (liftIO . terminate)
+              (action . getAndRegisterInfo)
 
 initialize :: Hash -> IO FileInfoCache
 initialize duration = mkReaper settings
@@ -122,4 +123,4 @@ override :: Cache -> IO (Cache -> Cache)
 override _ = return $ const M.empty
 
 terminate :: FileInfoCache -> IO ()
-terminate x = void $ reaperStop x
+terminate x = liftIO $ void $ reaperStop x
