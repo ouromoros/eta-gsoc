@@ -11,7 +11,7 @@ import System.IO.Unsafe
 import GHC.Base
 
 
-foreign import prim "eta.runtime.exception.Exception.catchFiber_"
+foreign import prim "eta.fibers.PrimOps.catchFiber_"
   catchFiber# :: Any -> Any -> Any -> State# s -> (# State# s, Any #)
 
 -- HACK ATTENTION: add 'yield' before f so that outer continuation is stopped
