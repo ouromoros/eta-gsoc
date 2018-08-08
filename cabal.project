@@ -4,6 +4,7 @@ packages: echo-server
           warp-fibers
           warp
           eta-fibers-new
+          warp-fibers-demo
 
 source-repository-package
   type: git
