@@ -30,3 +30,5 @@ Mainly I have created two libraries, `fibers-network` and `warp-fibers`, and hav
 
 - [fibers-network](https://github.com/ouromoros/fibers-network)
 - [warp-fibers](https://github.com/ouromoros/warp-fibers)
+
+I have performed simple benchmark on `warp-fibers` in comparison with `warp`. The details can be found in `BENCHMARK.md` in my main repositry `eta-gsoc`.
