@@ -1,12 +1,12 @@
 # fibers-network
 
-Non-blocking network IO for eta-fibers. Contains most basic functions from `network` and essentially has the same API but uses `Fiber` monad.
+`fibers-network` implements non-blocking network IO for eta-fibers, and contains most basic functions from `network`. It essentially has the same API with `network` but uses `Fiber` monad instead.
 
-Aside from functions from `network`, it also contains some more primitive functions for `Fiber` like `threadWait*`. Basic IO functions like `bindport*` and `readRawBufferPtr`/`writeRawBufferPtr` are also included. They also don't differ much from there original version except they're using `Fiber` monad and are non-blocking.
+Aside from functions that resemble those in `network`, `fibers-network` also contains some more primitive functions for `Fiber` like `threadWait*`. Basic network IO functions like `bindport*` and `readRawBufferPtr`/`writeRawBufferPtr` are also included. As a matter of principle, they don't differ much from their original version except they're using `Fiber` monad and are non-blocking.
 
-The `Socket` type is imported from `network`, so you can mix non-blocking functions here and blocking functions from `network` if you want. This can be convenient if you are using libraries that performs IO operations but does not support Fiber yet.
+The `Socket` type in `fibers-network` is imported from `network`, so you can also mix blocking functions imported from `network` on the obtained sockets if you want. This can be convenient if you are using libraries that performs IO operations but does not support Fiber yet.
 
-Here is an echo-server example:
+Here is an echo-server example for `fibers-network`:
 
 ```haskell
 -- Echo server program
