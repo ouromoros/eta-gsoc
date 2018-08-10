@@ -20,7 +20,7 @@ For Web servers, error handling is crucial. And actually most part of a Web serv
 
 ## Separate Work
 
-All the code is hosted in a github [repo](https://github.com/ouromoros/eta-gsoc) under my name. and I kept track on my work in the form of pull requests. The work done at different phases are under different Pull Requests:
+All the code is hosted in a github [repositry](https://github.com/ouromoros/eta-gsoc) under my name. and I kept track on my work in the form of pull requests. The work done at different phases are under different Pull Requests:
 
 1. [Phase 1](https://github.com/ouromoros/eta-gsoc/pull/1)
 2. [Phase 2.1](https://github.com/ouromoros/eta-gsoc/pull/2)
@@ -45,7 +45,9 @@ We have performed very basic benchmark on Warp-fibers and Warp with a very simpl
 - Server: Intel® Core™ i7-6700HQ (4 Cores, 8 Threads)
 - Two machines are in one local network
 
-We use `weighttp` as our tool on the client side for benchmarking. It is used as follows:
+The HelloWorld program can be found under `/warp-demo` and `/warp-fibers-demo` in the [repositry](https://github.com/ouromoros/eta-gsoc). Anyone who wish to reproduce can clone the whole repositry and run `etlas run warp-demo` or `etlas run warp-fibers-demo` to start the server for `warp` or `warp-fibers`.
+
+We use `weighttp` as our tool on the client side for benchmarking as follows:
 
 ```
 weighttp -n 10000 -c 1000 -t 10 http://<ip_address>:<port_number>
