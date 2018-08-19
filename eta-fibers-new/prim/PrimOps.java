@@ -8,7 +8,6 @@ import eta.runtime.stg.TSO;
 import eta.runtime.concurrent.Concurrent;
 import eta.runtime.concurrent.Fiber;
 import eta.runtime.concurrent.MVar;
-//import eta.runtime.exception;
 
 import static ghc_prim.ghc.Types.*;
 import static eta.runtime.stg.TSO.WhatNext.*;

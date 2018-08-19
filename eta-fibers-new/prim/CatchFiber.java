@@ -18,6 +18,6 @@ public class CatchFiber extends Function2 {
 
     @Override
     public Closure applyV(StgContext context) {
-        return Exception.catchFiber_(context, body, handler, after);
+        return PrimOps.catchFiber_(context, body, handler, after);
     }
 }
