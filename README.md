@@ -91,6 +91,10 @@ java.lang.IllegalArgumentException: Cannot dereference 0x1801000: Exceeded highe
     ...
 ```
 
-The problem appears more often in the later process of the benchmark, so it looks like a memory leak problem. We haven't tracked it down yet.
+~~The problem appears more often in the later process of the benchmark, so it looks like a memory leak problem. We haven't tracked it down yet.~~
 
-Since it is a bug that has accumulating effect, `warp` and `warp-fibers` can't be put into practical use until they are solved.
+~~Since it is a bug that has accumulating effect, `warp` and `warp-fibers` can't be put into practical use until they are solved.~~
+
+---
+
+The bug above has been fixed since 0.8.6b1
