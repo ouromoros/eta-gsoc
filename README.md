@@ -50,7 +50,7 @@ The HelloWorld program can be found under `/warp-demo` and `/warp-fibers-demo` i
 We use `weighttp` as our tool on the client side for benchmarking as follows:
 
 ```
-weighttp -n 10000 -c 1000 -t 10 http://<ip_address>:<port_number>
+weighttp -n 10000 -c 1000 -t 10 http://127.0.0.1:3000
 ```
 
 The result for `warp-fibers`:
